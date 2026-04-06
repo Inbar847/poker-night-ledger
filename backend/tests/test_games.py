@@ -1,0 +1,410 @@
+"""Tests for game creation, joining, and participant management."""
+
+from fastapi.testclient import TestClient
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+_GAME_PAYLOAD = {
+    "title": "Friday Night Poker",
+    "chip_cash_rate": 0.01,
+    "currency": "USD",
+}
+
+
+def _register_and_login(client: TestClient, email: str, password: str = "password123") -> str:
+    client.post(
+        "/auth/register",
+        json={"email": email, "password": password, "full_name": email.split("@")[0]},
+    )
+    resp = client.post("/auth/login", json={"email": email, "password": password})
+    return resp.json()["access_token"]
+
+
+def _auth(token: str) -> dict:
+    return {"Authorization": f"Bearer {token}"}
+
+
+def _create_game(client: TestClient, token: str, **overrides) -> dict:
+    payload = {**_GAME_PAYLOAD, **overrides}
+    return client.post("/games", json=payload, headers=_auth(token))
+
+
+# ---------------------------------------------------------------------------
+# Create game
+# ---------------------------------------------------------------------------
+
+
+def test_create_game_success(client: TestClient):
+    token = _register_and_login(client, "dealer@example.com")
+    resp = _create_game(client, token)
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["title"] == "Friday Night Poker"
+    assert body["status"] == "lobby"
+    assert body["currency"] == "USD"
+    assert body["invite_token"] is not None
+    assert body["closed_at"] is None
+
+
+def test_create_game_sets_dealer_fields(client: TestClient):
+    token = _register_and_login(client, "dealer@example.com")
+    resp = _create_game(client, token)
+    body = resp.json()
+    # dealer_user_id and created_by_user_id are the same user for MVP
+    assert body["dealer_user_id"] == body["created_by_user_id"]
+
+
+def test_create_game_requires_auth(client: TestClient):
+    resp = client.post("/games", json=_GAME_PAYLOAD)
+    assert resp.status_code == 401
+
+
+def test_create_game_invalid_chip_rate(client: TestClient):
+    token = _register_and_login(client, "dealer@example.com")
+    resp = _create_game(client, token, chip_cash_rate=0)
+    assert resp.status_code == 422
+
+
+def test_create_game_empty_title(client: TestClient):
+    token = _register_and_login(client, "dealer@example.com")
+    resp = _create_game(client, token, title="")
+    assert resp.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# List games
+# ---------------------------------------------------------------------------
+
+
+def test_list_games_returns_own_games(client: TestClient):
+    token = _register_and_login(client, "dealer@example.com")
+    _create_game(client, token)
+    _create_game(client, token, title="Second Game")
+    resp = client.get("/games", headers=_auth(token))
+    assert resp.status_code == 200
+    assert len(resp.json()) == 2
+
+
+def test_list_games_does_not_return_others_games(client: TestClient):
+    dealer_token = _register_and_login(client, "dealer@example.com")
+    other_token = _register_and_login(client, "other@example.com")
+    _create_game(client, dealer_token)
+    resp = client.get("/games", headers=_auth(other_token))
+    assert resp.status_code == 200
+    assert len(resp.json()) == 0
+
+
+def test_list_games_requires_auth(client: TestClient):
+    resp = client.get("/games")
+    assert resp.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# Get game
+# ---------------------------------------------------------------------------
+
+
+def test_get_game_success(client: TestClient):
+    token = _register_and_login(client, "dealer@example.com")
+    game_id = _create_game(client, token).json()["id"]
+    resp = client.get(f"/games/{game_id}", headers=_auth(token))
+    assert resp.status_code == 200
+    assert resp.json()["id"] == game_id
+
+
+def test_get_game_forbidden_for_non_participant(client: TestClient):
+    dealer_token = _register_and_login(client, "dealer@example.com")
+    other_token = _register_and_login(client, "other@example.com")
+    game_id = _create_game(client, dealer_token).json()["id"]
+    resp = client.get(f"/games/{game_id}", headers=_auth(other_token))
+    assert resp.status_code == 403
+
+
+def test_get_game_not_found(client: TestClient):
+    token = _register_and_login(client, "dealer@example.com")
+    fake_id = "00000000-0000-0000-0000-000000000000"
+    resp = client.get(f"/games/{fake_id}", headers=_auth(token))
+    assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Create game → dealer participant is created automatically
+# ---------------------------------------------------------------------------
+
+
+def test_create_game_dealer_appears_in_participants(client: TestClient):
+    token = _register_and_login(client, "dealer@example.com")
+    game_id = _create_game(client, token).json()["id"]
+    resp = client.get(f"/games/{game_id}/participants", headers=_auth(token))
+    assert resp.status_code == 200
+    participants = resp.json()
+    assert len(participants) == 1
+    assert participants[0]["role_in_game"] == "dealer"
+    assert participants[0]["participant_type"] == "registered"
+
+
+# ---------------------------------------------------------------------------
+# Invite link (rotate)
+# ---------------------------------------------------------------------------
+
+
+def test_generate_invite_link_returns_token(client: TestClient):
+    token = _register_and_login(client, "dealer@example.com")
+    game = _create_game(client, token).json()
+    original_token = game["invite_token"]
+    resp = client.post(f"/games/{game['id']}/invite-link", headers=_auth(token))
+    assert resp.status_code == 200
+    body = resp.json()
+    assert "invite_token" in body
+    # Rotating generates a new token
+    assert body["invite_token"] != original_token
+
+
+def test_generate_invite_link_dealer_only(client: TestClient):
+    dealer_token = _register_and_login(client, "dealer@example.com")
+    player_token = _register_and_login(client, "player@example.com")
+    game = _create_game(client, dealer_token).json()
+    # Join as player first
+    client.post(
+        "/games/join-by-token",
+        json={"token": game["invite_token"]},
+        headers=_auth(player_token),
+    )
+    resp = client.post(f"/games/{game['id']}/invite-link", headers=_auth(player_token))
+    assert resp.status_code == 403
+
+
+def test_generate_invite_link_requires_auth(client: TestClient):
+    token = _register_and_login(client, "dealer@example.com")
+    game_id = _create_game(client, token).json()["id"]
+    resp = client.post(f"/games/{game_id}/invite-link")
+    assert resp.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# Join by token
+# ---------------------------------------------------------------------------
+
+
+def test_join_by_token_success(client: TestClient):
+    dealer_token = _register_and_login(client, "dealer@example.com")
+    player_token = _register_and_login(client, "player@example.com")
+    game = _create_game(client, dealer_token).json()
+
+    resp = client.post(
+        "/games/join-by-token",
+        json={"token": game["invite_token"]},
+        headers=_auth(player_token),
+    )
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["role_in_game"] == "player"
+    assert body["participant_type"] == "registered"
+    assert body["game_id"] == game["id"]
+
+
+def test_join_by_token_invalid_token(client: TestClient):
+    player_token = _register_and_login(client, "player@example.com")
+    resp = client.post(
+        "/games/join-by-token",
+        json={"token": "does-not-exist"},
+        headers=_auth(player_token),
+    )
+    assert resp.status_code == 404
+
+
+def test_join_by_token_already_participant_returns_409(client: TestClient):
+    dealer_token = _register_and_login(client, "dealer@example.com")
+    player_token = _register_and_login(client, "player@example.com")
+    game = _create_game(client, dealer_token).json()
+
+    client.post(
+        "/games/join-by-token",
+        json={"token": game["invite_token"]},
+        headers=_auth(player_token),
+    )
+    resp = client.post(
+        "/games/join-by-token",
+        json={"token": game["invite_token"]},
+        headers=_auth(player_token),
+    )
+    assert resp.status_code == 409
+
+
+def test_join_by_token_requires_auth(client: TestClient):
+    dealer_token = _register_and_login(client, "dealer@example.com")
+    game = _create_game(client, dealer_token).json()
+    resp = client.post("/games/join-by-token", json={"token": game["invite_token"]})
+    assert resp.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# Invite registered user
+# ---------------------------------------------------------------------------
+
+
+def test_invite_user_success(client: TestClient):
+    dealer_token = _register_and_login(client, "dealer@example.com")
+    game_id = _create_game(client, dealer_token).json()["id"]
+
+    # Register the invitee and get their user id
+    client.post(
+        "/auth/register",
+        json={"email": "invitee@example.com", "password": "password123"},
+    )
+    login_resp = client.post(
+        "/auth/login", json={"email": "invitee@example.com", "password": "password123"}
+    )
+    invitee_token = login_resp.json()["access_token"]
+    invitee_id = client.get("/users/me", headers=_auth(invitee_token)).json()["id"]
+
+    resp = client.post(
+        f"/games/{game_id}/invite-user",
+        json={"user_id": invitee_id},
+        headers=_auth(dealer_token),
+    )
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["user_id"] == invitee_id
+    assert body["role_in_game"] == "player"
+
+
+def test_invite_user_dealer_only(client: TestClient):
+    dealer_token = _register_and_login(client, "dealer@example.com")
+    player_token = _register_and_login(client, "player@example.com")
+    stranger_token = _register_and_login(client, "stranger@example.com")
+    game = _create_game(client, dealer_token).json()
+
+    # player joins the game
+    client.post(
+        "/games/join-by-token",
+        json={"token": game["invite_token"]},
+        headers=_auth(player_token),
+    )
+    stranger_id = client.get("/users/me", headers=_auth(stranger_token)).json()["id"]
+
+    resp = client.post(
+        f"/games/{game['id']}/invite-user",
+        json={"user_id": stranger_id},
+        headers=_auth(player_token),
+    )
+    assert resp.status_code == 403
+
+
+def test_invite_user_not_found(client: TestClient):
+    dealer_token = _register_and_login(client, "dealer@example.com")
+    game_id = _create_game(client, dealer_token).json()["id"]
+    resp = client.post(
+        f"/games/{game_id}/invite-user",
+        json={"user_id": "00000000-0000-0000-0000-000000000000"},
+        headers=_auth(dealer_token),
+    )
+    assert resp.status_code == 404
+
+
+def test_invite_user_already_in_game_returns_409(client: TestClient):
+    dealer_token = _register_and_login(client, "dealer@example.com")
+    player_token = _register_and_login(client, "player@example.com")
+    game = _create_game(client, dealer_token).json()
+    player_id = client.get("/users/me", headers=_auth(player_token)).json()["id"]
+
+    # Add the player once via token
+    client.post(
+        "/games/join-by-token",
+        json={"token": game["invite_token"]},
+        headers=_auth(player_token),
+    )
+    # Try to invite them again via dealer
+    resp = client.post(
+        f"/games/{game['id']}/invite-user",
+        json={"user_id": player_id},
+        headers=_auth(dealer_token),
+    )
+    assert resp.status_code == 409
+
+
+# ---------------------------------------------------------------------------
+# Add guest
+# ---------------------------------------------------------------------------
+
+
+def test_add_guest_success(client: TestClient):
+    dealer_token = _register_and_login(client, "dealer@example.com")
+    game_id = _create_game(client, dealer_token).json()["id"]
+    resp = client.post(
+        f"/games/{game_id}/guests",
+        json={"guest_name": "Bob Guest"},
+        headers=_auth(dealer_token),
+    )
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["guest_name"] == "Bob Guest"
+    assert body["participant_type"] == "guest"
+    assert body["user_id"] is None
+
+
+def test_add_multiple_guests_allowed(client: TestClient):
+    dealer_token = _register_and_login(client, "dealer@example.com")
+    game_id = _create_game(client, dealer_token).json()["id"]
+    client.post(f"/games/{game_id}/guests", json={"guest_name": "Guest 1"}, headers=_auth(dealer_token))
+    resp = client.post(f"/games/{game_id}/guests", json={"guest_name": "Guest 2"}, headers=_auth(dealer_token))
+    assert resp.status_code == 201
+
+
+def test_add_guest_dealer_only(client: TestClient):
+    dealer_token = _register_and_login(client, "dealer@example.com")
+    player_token = _register_and_login(client, "player@example.com")
+    game = _create_game(client, dealer_token).json()
+    client.post(
+        "/games/join-by-token",
+        json={"token": game["invite_token"]},
+        headers=_auth(player_token),
+    )
+    resp = client.post(
+        f"/games/{game['id']}/guests",
+        json={"guest_name": "Sneaky Guest"},
+        headers=_auth(player_token),
+    )
+    assert resp.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# Get participants
+# ---------------------------------------------------------------------------
+
+
+def test_get_participants_includes_all_types(client: TestClient):
+    dealer_token = _register_and_login(client, "dealer@example.com")
+    player_token = _register_and_login(client, "player@example.com")
+    game = _create_game(client, dealer_token).json()
+
+    # Add a registered player
+    client.post(
+        "/games/join-by-token",
+        json={"token": game["invite_token"]},
+        headers=_auth(player_token),
+    )
+    # Add a guest
+    client.post(
+        f"/games/{game['id']}/guests",
+        json={"guest_name": "Alice Guest"},
+        headers=_auth(dealer_token),
+    )
+
+    resp = client.get(f"/games/{game['id']}/participants", headers=_auth(dealer_token))
+    assert resp.status_code == 200
+    participants = resp.json()
+    assert len(participants) == 3  # dealer + registered player + guest
+    types = {p["participant_type"] for p in participants}
+    assert "registered" in types
+    assert "guest" in types
+
+
+def test_get_participants_forbidden_for_non_participant(client: TestClient):
+    dealer_token = _register_and_login(client, "dealer@example.com")
+    outsider_token = _register_and_login(client, "outsider@example.com")
+    game_id = _create_game(client, dealer_token).json()["id"]
+    resp = client.get(f"/games/{game_id}/participants", headers=_auth(outsider_token))
+    assert resp.status_code == 403
