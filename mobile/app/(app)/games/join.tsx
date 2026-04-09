@@ -23,6 +23,7 @@ import { z } from "zod";
 
 import { queryKeys } from "@/lib/queryKeys";
 import * as gameService from "@/services/gameService";
+import { useAuthStore } from "@/store/authStore";
 
 const schema = z.object({
   token: z.string().min(1, "Token is required"),
@@ -33,12 +34,13 @@ type FormValues = z.infer<typeof schema>;
 export default function JoinGameScreen() {
   const router = useRouter();
   const queryClient = useQueryClient();
+  const userId = useAuthStore((s) => s.userId) ?? "";
 
   const mutation = useMutation({
     mutationFn: (values: FormValues) =>
       gameService.joinByToken(values.token.trim()),
     onSuccess: (participant) => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.games });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.games(userId) });
       router.replace(`/games/${participant.game_id}`);
     },
   });

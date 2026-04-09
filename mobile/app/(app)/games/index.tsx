@@ -19,6 +19,7 @@ import {
 
 import { queryKeys } from "@/lib/queryKeys";
 import * as gameService from "@/services/gameService";
+import { useAuthStore } from "@/store/authStore";
 import type { Game } from "@/types/game";
 
 const STATUS_COLOR: Record<string, string> = {
@@ -58,6 +59,7 @@ function GameCard({
 
 export default function GamesScreen() {
   const router = useRouter();
+  const userId = useAuthStore((s) => s.userId) ?? "";
 
   const {
     data: games,
@@ -65,7 +67,7 @@ export default function GamesScreen() {
     error,
     refetch,
   } = useQuery({
-    queryKey: queryKeys.games,
+    queryKey: queryKeys.games(userId),
     queryFn: gameService.listGames,
   });
 

@@ -52,3 +52,12 @@ export async function addGuest(
 ): Promise<Participant> {
   return apiClient.post<Participant>(`/games/${gameId}/guests`, { guest_name });
 }
+
+export async function inviteUser(
+  gameId: string,
+  userId: string,
+): Promise<Participant> {
+  return apiClient.post<Participant>(`/games/${gameId}/invite-user`, {
+    user_id: userId,
+  });
+}

@@ -1,6 +1,9 @@
 """Tests for game creation, joining, and participant management."""
 
 from fastapi.testclient import TestClient
+from sqlalchemy.orm import Session
+
+from app.models.notification import Notification, NotificationType
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -323,6 +326,42 @@ def test_invite_user_already_in_game_returns_409(client: TestClient):
         headers=_auth(dealer_token),
     )
     assert resp.status_code == 409
+
+
+def test_invite_user_creates_game_invitation_notification(
+    client: TestClient, db_session: Session
+):
+    dealer_token = _register_and_login(client, "dealer@example.com")
+    game_id = _create_game(client, dealer_token).json()["id"]
+
+    client.post(
+        "/auth/register",
+        json={"email": "invitee@example.com", "password": "password123"},
+    )
+    login_resp = client.post(
+        "/auth/login", json={"email": "invitee@example.com", "password": "password123"}
+    )
+    invitee_token = login_resp.json()["access_token"]
+    invitee_id = client.get("/users/me", headers=_auth(invitee_token)).json()["id"]
+
+    resp = client.post(
+        f"/games/{game_id}/invite-user",
+        json={"user_id": invitee_id},
+        headers=_auth(dealer_token),
+    )
+    assert resp.status_code == 201
+
+    notification = (
+        db_session.query(Notification)
+        .filter(
+            Notification.type == NotificationType.game_invitation,
+        )
+        .first()
+    )
+    assert notification is not None
+    assert str(notification.user_id) == invitee_id
+    assert notification.data["game_id"] == game_id
+    assert notification.read is False
 
 
 # ---------------------------------------------------------------------------

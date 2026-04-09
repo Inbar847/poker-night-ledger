@@ -26,6 +26,7 @@ import { z } from "zod";
 
 import { queryKeys } from "@/lib/queryKeys";
 import * as gameService from "@/services/gameService";
+import { useAuthStore } from "@/store/authStore";
 
 const schema = z.object({
   title: z.string().min(1, "Game title is required").max(255),
@@ -41,11 +42,12 @@ type FormValues = z.infer<typeof schema>;
 export default function CreateGameScreen() {
   const router = useRouter();
   const queryClient = useQueryClient();
+  const userId = useAuthStore((s) => s.userId) ?? "";
 
   const mutation = useMutation({
     mutationFn: gameService.createGame,
     onSuccess: (game) => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.games });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.games(userId) });
       router.replace(`/games/${game.id}`);
     },
   });

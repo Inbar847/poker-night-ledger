@@ -17,6 +17,7 @@ import {
 
 import { queryKeys } from "@/lib/queryKeys";
 import * as statsService from "@/services/statsService";
+import { useAuthStore } from "@/store/authStore";
 import type { GameHistoryItem } from "@/types/stats";
 
 function netColor(net: string | null): string {
@@ -74,9 +75,10 @@ function HistoryCard({
 
 export default function HistoryScreen() {
   const router = useRouter();
+  const userId = useAuthStore((s) => s.userId) ?? "";
 
   const { data: items, isLoading, error, refetch } = useQuery({
-    queryKey: queryKeys.history,
+    queryKey: queryKeys.history(userId),
     queryFn: statsService.getHistory,
   });
 

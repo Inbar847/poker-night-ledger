@@ -10,6 +10,7 @@ from app.models.participant import Participant, RoleInGame
 from app.models.user import User
 from app.realtime import events as rt_events
 from app.realtime.manager import manager
+from app.models.notification import NotificationType
 from app.schemas.game import GameCreate, GameResponse, InviteLinkResponse
 from app.schemas.participant import (
     AddGuestRequest,
@@ -17,7 +18,7 @@ from app.schemas.participant import (
     JoinByTokenRequest,
     ParticipantResponse,
 )
-from app.services import game_service, participant_service
+from app.services import game_service, notification_service, participant_service
 from app.services.user_service import get_user_by_id
 
 router = APIRouter(prefix="/games", tags=["games"])
@@ -183,6 +184,14 @@ async def invite_user(
         )
     result = participant_service.invite_user(db, game, invitee)
     response_obj = _build_participant_response(result, invitee)
+    # Notify the invited user that they have been added to a game
+    notification_service.create_notification(
+        db,
+        user_id=invitee.id,
+        notification_type=NotificationType.game_invitation,
+        data={"game_id": str(game_id), "invited_by_user_id": str(current_user.id)},
+    )
+    db.commit()
     await manager.broadcast(game_id, rt_events.participant_joined(game_id, response_obj.model_dump(mode="json")))
     return response_obj
 
@@ -216,6 +225,17 @@ async def start_game(
         result = game_service.start_game(db, game)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    # Notify all registered participants that the game has started
+    participants = participant_service.get_participants(db, game_id)
+    for p in participants:
+        if p.user_id is not None:
+            notification_service.create_notification(
+                db,
+                user_id=p.user_id,
+                notification_type=NotificationType.game_started,
+                data={"game_id": str(game_id)},
+            )
+    db.commit()
     await manager.broadcast(game_id, rt_events.game_started(game_id))
     return result
 
@@ -233,6 +253,17 @@ async def close_game(
         result = game_service.close_game(db, game)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    # Notify all registered participants that the game has closed
+    participants = participant_service.get_participants(db, game_id)
+    for p in participants:
+        if p.user_id is not None:
+            notification_service.create_notification(
+                db,
+                user_id=p.user_id,
+                notification_type=NotificationType.game_closed,
+                data={"game_id": str(game_id)},
+            )
+    db.commit()
     # Broadcast both close and settlement-ready signals
     await manager.broadcast(game_id, rt_events.game_closed(game_id))
     await manager.broadcast(game_id, rt_events.settlement_updated(game_id))

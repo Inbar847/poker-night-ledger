@@ -15,6 +15,7 @@ import {
 } from "react-native";
 import { z } from "zod";
 
+import { queryClient } from "@/lib/queryClient";
 import * as authService from "@/services/authService";
 import { useAuthStore } from "@/store/authStore";
 
@@ -55,6 +56,8 @@ export default function RegisterScreen() {
         email: values.email,
         password: values.password,
       });
+      // Clear any stale cache from a prior session before populating the new one.
+      queryClient.clear();
       await setTokens(tokens.access_token, tokens.refresh_token);
       router.replace("/games");
     } catch (err) {

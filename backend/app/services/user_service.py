@@ -45,3 +45,41 @@ def update_user(db: Session, user: User, data: UserUpdate) -> User:
     db.commit()
     db.refresh(user)
     return user
+
+
+_SEARCH_MIN_LEN = 2
+_SEARCH_MAX_RESULTS = 20
+
+
+def search_users(db: Session, query: str, requester_id: uuid.UUID) -> list[User]:
+    """
+    Search users by full_name only (partial, case-insensitive).
+
+    Rules:
+    - Query must be at least 2 characters; shorter queries return an empty list
+      to avoid expensive full-table scans.
+    - The requesting user is excluded from results.
+    - Email is never used as a search criterion and is never returned in results.
+    - Results are capped at 20 rows ordered by full_name.
+    - Only public-safe fields are needed — callers should map to UserSearchResult.
+    """
+    if len(query.strip()) < _SEARCH_MIN_LEN:
+        return []
+
+    pattern = f"%{query.strip()}%"
+
+    return (
+        db.query(User)
+        .filter(
+            User.id != requester_id,
+            User.full_name.ilike(pattern),
+        )
+        .order_by(User.full_name)
+        .limit(_SEARCH_MAX_RESULTS)
+        .all()
+    )
+
+
+def get_public_profile(db: Session, user_id: uuid.UUID) -> User | None:
+    """Return the User row for a public profile lookup, or None if not found."""
+    return db.get(User, user_id)

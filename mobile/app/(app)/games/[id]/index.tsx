@@ -24,11 +24,13 @@ import {
   View,
 } from "react-native";
 
+import InvitePlayerModal from "@/components/InvitePlayerModal";
 import { useGameSocket } from "@/hooks/useGameSocket";
 import { queryKeys } from "@/lib/queryKeys";
 import * as gameService from "@/services/gameService";
 import * as ledgerService from "@/services/ledgerService";
 import * as userService from "@/services/userService";
+import { useAuthStore } from "@/store/authStore";
 import type { BuyIn, Expense, Participant } from "@/types/game";
 
 // ---------------------------------------------------------------------------
@@ -215,11 +217,13 @@ export default function GameScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const queryClient = useQueryClient();
+  const userId = useAuthStore((s) => s.userId) ?? "";
 
   // Live updates
   useGameSocket(id);
 
   const [showAddGuest, setShowAddGuest] = useState(false);
+  const [showInviteModal, setShowInviteModal] = useState(false);
 
   // Queries
   const {
@@ -255,7 +259,7 @@ export default function GameScreen() {
   // TanStack Query will serve from cache if warm or refetch from network if not —
   // so dealer detection is always correct regardless of navigation order.
   const { data: me } = useQuery({
-    queryKey: queryKeys.me,
+    queryKey: queryKeys.me(userId),
     queryFn: userService.getMe,
   });
 
@@ -275,7 +279,7 @@ export default function GameScreen() {
     mutationFn: () => gameService.startGame(id),
     onSuccess: (updated) => {
       queryClient.setQueryData(queryKeys.game(id), updated);
-      void queryClient.invalidateQueries({ queryKey: queryKeys.games });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.games(userId) });
     },
     onError: (err) => {
       Alert.alert(
@@ -289,7 +293,7 @@ export default function GameScreen() {
     mutationFn: () => gameService.closeGame(id),
     onSuccess: (updated) => {
       queryClient.setQueryData(queryKeys.game(id), updated);
-      void queryClient.invalidateQueries({ queryKey: queryKeys.games });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.games(userId) });
     },
     onError: (err) => {
       Alert.alert(
@@ -394,21 +398,31 @@ export default function GameScreen() {
           ))
         )}
 
-        {/* Dealer: add guest */}
+        {/* Dealer: add guest + invite registered user */}
         {isDealer && game.status !== "closed" ? (
-          showAddGuest ? (
-            <AddGuestForm
-              gameId={id}
-              onDone={() => setShowAddGuest(false)}
-            />
-          ) : (
-            <Pressable
-              style={[styles.btn, styles.btnSecondary, styles.btnSmall]}
-              onPress={() => setShowAddGuest(true)}
-            >
-              <Text style={styles.btnTextSecondary}>+ Add Guest</Text>
-            </Pressable>
-          )
+          <>
+            {showAddGuest ? (
+              <AddGuestForm
+                gameId={id}
+                onDone={() => setShowAddGuest(false)}
+              />
+            ) : (
+              <Pressable
+                style={[styles.btn, styles.btnSecondary, styles.btnSmall]}
+                onPress={() => setShowAddGuest(true)}
+              >
+                <Text style={styles.btnTextSecondary}>+ Add Guest</Text>
+              </Pressable>
+            )}
+            {game.status === "lobby" && (
+              <Pressable
+                style={[styles.btn, styles.btnSecondary, styles.btnSmall]}
+                onPress={() => setShowInviteModal(true)}
+              >
+                <Text style={styles.btnTextSecondary}>+ Invite Player</Text>
+              </Pressable>
+            )}
+          </>
         ) : null}
 
         {/* ----------------------------------------------------------------- */}
@@ -574,6 +588,19 @@ export default function GameScreen() {
           </View>
         ) : null}
       </ScrollView>
+
+      {/* Invite registered player modal — dealer-only, lobby only */}
+      <InvitePlayerModal
+        visible={showInviteModal}
+        gameId={id}
+        onSuccess={() => {
+          void queryClient.invalidateQueries({
+            queryKey: queryKeys.participants(id),
+          });
+          setShowInviteModal(false);
+        }}
+        onClose={() => setShowInviteModal(false)}
+      />
     </>
   );
 }

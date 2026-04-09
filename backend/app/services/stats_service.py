@@ -17,7 +17,14 @@ from app.models.game import Game, GameStatus
 from app.models.ledger import BuyIn, Expense, ExpenseSplit, FinalStack
 from app.models.participant import Participant
 from app.schemas.settlement import SettlementResponse
-from app.schemas.stats import GameHistoryItem, RecentGameSummary, UserStats
+from app.schemas.stats import (
+    GameHistoryItem,
+    LeaderboardEntry,
+    LeaderboardResponse,
+    RecentGameSummary,
+    UserStats,
+    UserStatsView,
+)
 from app.services.settlement_service import get_settlement
 
 _TWO = Decimal("0.01")
@@ -272,4 +279,112 @@ def get_stats(db: Session, user_id: uuid.UUID) -> UserStats:
         profitable_games=profitable_games,
         win_rate=win_rate,
         recent_games=recent_games,
+    )
+
+
+def get_leaderboard(db: Session, current_user_id: uuid.UUID) -> LeaderboardResponse:
+    """
+    Return the friend leaderboard for the current user.
+
+    Includes:
+    - The current user themselves
+    - All accepted friends (both directions)
+
+    Sorted by:
+    1. cumulative_net descending (primary)
+    2. win_rate descending (secondary; None treated as -inf)
+    3. total_games_played descending (tertiary)
+    4. user_id ascending (stable tie-break)
+
+    Privacy: no gating applied here — every entry is either self or an accepted
+    friend, so full stats are appropriate for all entries.
+    """
+    # Local import to avoid circular dependency at module load time.
+    from app.services.friendship_service import list_friends  # noqa: PLC0415
+    from app.models.user import User  # noqa: PLC0415
+
+    # Collect user IDs: self + all accepted friends
+    friend_entries = list_friends(db, current_user_id)
+    friend_ids = [fe.friend.id for fe in friend_entries]
+    all_user_ids = [current_user_id] + friend_ids
+
+    # Batch-compute stats for all users
+    raw_entries: list[tuple[uuid.UUID, UserStats]] = []
+    for uid in all_user_ids:
+        stats = get_stats(db, uid)
+        raw_entries.append((uid, stats))
+
+    # Fetch user records for name/image in one query
+    users = db.query(User).filter(User.id.in_(all_user_ids)).all()
+    user_map: dict[uuid.UUID, User] = {u.id: u for u in users}
+
+    # Sort: cumulative_net desc, win_rate desc (None → -1), games_played desc, user_id asc
+    def _sort_key(item: tuple[uuid.UUID, UserStats]):
+        uid, s = item
+        return (
+            -s.cumulative_net,
+            -(s.win_rate if s.win_rate is not None else -1.0),
+            -s.total_games_played,
+            str(uid),
+        )
+
+    raw_entries.sort(key=_sort_key)
+
+    entries: list[LeaderboardEntry] = []
+    for rank, (uid, stats) in enumerate(raw_entries, start=1):
+        user = user_map.get(uid)
+        entries.append(
+            LeaderboardEntry(
+                rank=rank,
+                user_id=uid,
+                full_name=user.full_name if user else None,
+                profile_image_url=user.profile_image_url if user else None,
+                total_games_played=stats.total_games_played,
+                games_with_result=stats.games_with_result,
+                cumulative_net=stats.cumulative_net,
+                win_rate=stats.win_rate,
+                is_self=(uid == current_user_id),
+            )
+        )
+
+    return LeaderboardResponse(entries=entries)
+
+
+def get_user_stats_view(
+    db: Session, target_user_id: uuid.UUID, viewer_user_id: uuid.UUID
+) -> UserStatsView:
+    """
+    Return stats for `target_user_id` as seen by `viewer_user_id`.
+
+    Privacy rule (enforced here, not in the router):
+    - If viewer == target: full stats.
+    - If viewer is an accepted friend of target: full stats.
+    - Otherwise: only total_games_played, with is_friend_access=False.
+
+    This function is the single authoritative privacy gate for user stats.
+    """
+    # Local import to avoid circular dependency at module load time.
+    from app.services.friendship_service import are_friends  # noqa: PLC0415
+
+    is_self = viewer_user_id == target_user_id
+    has_full_access = is_self or are_friends(db, viewer_user_id, target_user_id)
+
+    full = get_stats(db, target_user_id)
+
+    if not has_full_access:
+        return UserStatsView(
+            is_friend_access=False,
+            total_games_played=full.total_games_played,
+        )
+
+    return UserStatsView(
+        is_friend_access=True,
+        total_games_played=full.total_games_played,
+        total_games_hosted=full.total_games_hosted,
+        games_with_result=full.games_with_result,
+        cumulative_net=full.cumulative_net,
+        average_net=full.average_net,
+        profitable_games=full.profitable_games,
+        win_rate=full.win_rate,
+        recent_games=full.recent_games,
     )

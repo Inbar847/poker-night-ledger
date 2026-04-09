@@ -28,6 +28,7 @@ import { z } from "zod";
 import { queryKeys } from "@/lib/queryKeys";
 import * as statsService from "@/services/statsService";
 import * as userService from "@/services/userService";
+import { useAuthStore } from "@/store/authStore";
 import type { UserStats } from "@/types/stats";
 import type { User } from "@/types/user";
 
@@ -74,9 +75,17 @@ function StatsSection({ stats }: { stats: UserStats }) {
     <View style={styles.statsCard}>
       <View style={styles.statsHeader}>
         <Text style={styles.statsTitle}>My Stats</Text>
-        <Pressable onPress={() => router.push("/history")}>
-          <Text style={styles.historyLink}>View History →</Text>
-        </Pressable>
+        <View style={{ flexDirection: "row", gap: 12 }}>
+          <Pressable onPress={() => router.push("/friends")}>
+            <Text style={styles.historyLink}>Friends →</Text>
+          </Pressable>
+          <Pressable onPress={() => router.push("/leaderboard")}>
+            <Text style={styles.historyLink}>Leaderboard →</Text>
+          </Pressable>
+          <Pressable onPress={() => router.push("/history")}>
+            <Text style={styles.historyLink}>History →</Text>
+          </Pressable>
+        </View>
       </View>
 
       <View style={styles.statsGrid}>
@@ -126,10 +135,12 @@ function ProfileRow({ label, value }: { label: string; value?: string | null }) 
 
 function EditForm({
   user,
+  userId,
   onCancel,
   onSaved,
 }: {
   user: User;
+  userId: string;
   onCancel: () => void;
   onSaved: () => void;
 }) {
@@ -138,7 +149,7 @@ function EditForm({
   const mutation = useMutation({
     mutationFn: userService.updateMe,
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.me });
+      queryClient.invalidateQueries({ queryKey: queryKeys.me(userId) });
       onSaved();
     },
   });
@@ -268,14 +279,15 @@ function EditForm({
 
 export default function ProfileScreen() {
   const [isEditing, setIsEditing] = useState(false);
+  const userId = useAuthStore((s) => s.userId) ?? "";
 
   const { data: user, isLoading, error, refetch } = useQuery({
-    queryKey: queryKeys.me,
+    queryKey: queryKeys.me(userId),
     queryFn: userService.getMe,
   });
 
   const { data: stats } = useQuery({
-    queryKey: queryKeys.stats,
+    queryKey: queryKeys.stats(userId),
     queryFn: statsService.getStats,
   });
 
@@ -326,6 +338,7 @@ export default function ProfileScreen() {
         <View style={styles.editSection}>
           <EditForm
             user={user}
+            userId={userId}
             onCancel={() => setIsEditing(false)}
             onSaved={() => setIsEditing(false)}
           />

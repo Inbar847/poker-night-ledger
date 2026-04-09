@@ -296,3 +296,22 @@ A stage is done only if:
 - the app/backend can run for that stage
 - no unrelated architecture drift was introduced
 - the summary clearly explains what changed
+
+---
+
+## Post-MVP (Phase 2)
+
+The MVP is complete through Stage 9.
+
+Phase 2 adds social features, UX polish, and in-app notifications.  
+Before working on any Phase 2 stage, read these docs in addition to the standard three:
+
+4. `docs/PHASE2_PRODUCT_SPEC.md` — Phase 2 product goals and feature rules
+5. `docs/PHASE2_ARCHITECTURE.md` — new models, endpoints, services, and mobile modules
+6. `docs/PHASE2_PLAN.md` — stage-by-stage implementation plan (Stages 10–17)
+7. `docs/KNOWN_ISSUES.md` — documented bugs targeted for Phase 2
+
+Phase 2 stages are numbered 10–17.  
+All MVP behavior (guest support, realtime, dealer-only buy-in control, settlement engine) is preserved unless `PHASE2_PRODUCT_SPEC.md` explicitly overrides it.
+
+The same "one stage at a time" rule applies. Do not silently continue into the next stage.

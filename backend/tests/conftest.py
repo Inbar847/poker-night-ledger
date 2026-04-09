@@ -65,3 +65,17 @@ def client():
     with TestClient(app) as c:
         yield c
     app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def db_session():
+    """Yield a SQLAlchemy session connected to the test database.
+
+    Use this fixture in tests that need to query DB state directly
+    (e.g. to verify notification side-effects).
+    """
+    db = _TestingSessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()

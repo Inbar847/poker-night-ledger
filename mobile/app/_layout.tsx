@@ -8,20 +8,12 @@
  *     shows a loading spinner until then.
  */
 
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { Stack } from "expo-router";
 import { useEffect } from "react";
 
+import { queryClient } from "@/lib/queryClient";
 import { useAuthStore } from "@/store/authStore";
-
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      retry: false,
-      staleTime: 1000 * 60 * 5, // 5 minutes
-    },
-  },
-});
 
 function AuthBootstrap() {
   const bootstrap = useAuthStore((s) => s.bootstrap);
