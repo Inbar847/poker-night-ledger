@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from decimal import Decimal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.models.ledger import BuyInType
 
@@ -23,6 +23,15 @@ class BuyInUpdate(BaseModel):
     cash_amount: Decimal | None = Field(default=None, gt=0)
     chips_amount: Decimal | None = Field(default=None, ge=0)
     buy_in_type: BuyInType | None = None
+
+    @model_validator(mode="after")
+    def at_least_one_field(self) -> "BuyInUpdate":
+        if self.cash_amount is None and self.chips_amount is None and self.buy_in_type is None:
+            raise ValueError(
+                "At least one field must be provided for a buy-in update "
+                "(cash_amount, chips_amount, or buy_in_type)."
+            )
+        return self
 
 
 class BuyInResponse(BaseModel):
@@ -54,6 +63,14 @@ class ExpenseCreate(BaseModel):
     total_amount: Decimal = Field(gt=0)
     paid_by_participant_id: uuid.UUID
     splits: list[ExpenseSplitInput] = Field(min_length=1)
+
+    @field_validator("title", mode="before")
+    @classmethod
+    def strip_title(cls, v: str) -> str:
+        stripped = v.strip()
+        if not stripped:
+            raise ValueError("title must not be blank or whitespace-only.")
+        return stripped
 
     @model_validator(mode="after")
     def splits_sum_to_total(self) -> "ExpenseCreate":
@@ -94,6 +111,16 @@ class ExpenseUpdate(BaseModel):
     total_amount: Decimal | None = Field(default=None, gt=0)
     paid_by_participant_id: uuid.UUID | None = None
     splits: list[ExpenseSplitInput] | None = None
+
+    @field_validator("title", mode="before")
+    @classmethod
+    def strip_title(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        stripped = v.strip()
+        if not stripped:
+            raise ValueError("title must not be blank or whitespace-only.")
+        return stripped
 
     @model_validator(mode="after")
     def splits_match_total_if_both_given(self) -> "ExpenseUpdate":

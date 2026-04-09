@@ -408,3 +408,48 @@ def test_get_participants_forbidden_for_non_participant(client: TestClient):
     game_id = _create_game(client, dealer_token).json()["id"]
     resp = client.get(f"/games/{game_id}/participants", headers=_auth(outsider_token))
     assert resp.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# Stage 9: validation edge cases
+# ---------------------------------------------------------------------------
+
+
+def test_create_game_whitespace_only_title_returns_422(client: TestClient):
+    """Game title consisting only of whitespace must be rejected."""
+    token = _register_and_login(client, "dealer@example.com")
+    resp = _create_game(client, token, title="   ")
+    assert resp.status_code == 422
+
+
+def test_create_game_title_is_stripped(client: TestClient):
+    """Leading/trailing whitespace in title should be stripped on the way in."""
+    token = _register_and_login(client, "dealer@example.com")
+    resp = _create_game(client, token, title="  Friday Night  ")
+    assert resp.status_code == 201
+    assert resp.json()["title"] == "Friday Night"
+
+
+def test_add_guest_whitespace_only_name_returns_422(client: TestClient):
+    """Guest name consisting only of whitespace must be rejected."""
+    token = _register_and_login(client, "dealer@example.com")
+    game_id = _create_game(client, token).json()["id"]
+    resp = client.post(
+        f"/games/{game_id}/guests",
+        json={"guest_name": "   "},
+        headers=_auth(token),
+    )
+    assert resp.status_code == 422
+
+
+def test_add_guest_name_is_stripped(client: TestClient):
+    """Leading/trailing whitespace in guest_name should be stripped."""
+    token = _register_and_login(client, "dealer@example.com")
+    game_id = _create_game(client, token).json()["id"]
+    resp = client.post(
+        f"/games/{game_id}/guests",
+        json={"guest_name": "  Bob  "},
+        headers=_auth(token),
+    )
+    assert resp.status_code == 201
+    assert resp.json()["guest_name"] == "Bob"

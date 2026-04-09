@@ -1,29 +1,25 @@
-import { StyleSheet, Text, View } from "react-native";
+/**
+ * App entry point — redirects based on auth state.
+ *
+ *  - Not bootstrapped yet  → wait (LoadingScreen shown by (app) layout)
+ *  - Has access token      → go to profile (the (app) auth guard handles invalid tokens)
+ *  - No access token       → go to login
+ */
 
-export default function HomeScreen() {
-  return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Poker Night Ledger</Text>
-      <Text style={styles.subtitle}>Stage 0 — Foundation</Text>
-    </View>
-  );
+import { Redirect } from "expo-router";
+import LoadingScreen from "@/components/LoadingScreen";
+import { useAuthStore } from "@/store/authStore";
+
+export default function Index() {
+  const { isBootstrapped, accessToken } = useAuthStore();
+
+  if (!isBootstrapped) {
+    return <LoadingScreen />;
+  }
+
+  if (accessToken) {
+    return <Redirect href="/games" />;
+  }
+
+  return <Redirect href="/auth/login" />;
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#1a1a2e",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: "bold",
-    color: "#ffffff",
-    marginBottom: 8,
-  },
-  subtitle: {
-    fontSize: 16,
-    color: "#888888",
-  },
-});

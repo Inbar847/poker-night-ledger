@@ -276,11 +276,6 @@ def test_basic_two_player_settlement(client: TestClient):
 
 def test_settlement_zero_sum_transfers(client: TestClient):
     """Sum of transfer amounts leaving == sum arriving; net = 0."""
-    _, _, game_id, _, _ = _setup_two_player_game(
-        client, dealer_final_chips=15000, player_final_chips=5000
-    )
-    dealer_token = _register_and_login(client, "d_zs@example.com")
-    # Re-register because the helper already consumed the names — use fresh game
     dealer_token2 = _register_and_login(client, "d_zs2@example.com")
     player_token2 = _register_and_login(client, "p_zs2@example.com")
     game = _create_game(client, dealer_token2)
@@ -661,8 +656,6 @@ def test_audit_net_balance_sum_near_zero(client: TestClient):
 
 def test_audit_accessible_by_player(client: TestClient):
     """Any participant (not just dealer) can access the audit endpoint."""
-    dealer_token, player_token, game_id, _, _ = _setup_two_player_game(client)
-    # Overriding with fresh names since _setup_two_player_game uses fixed email
     d2 = _register_and_login(client, "d_acc@example.com")
     p2 = _register_and_login(client, "p_acc@example.com")
     game = _create_game(client, d2)
@@ -696,3 +689,112 @@ def test_no_expenses_expense_balance_is_zero(client: TestClient):
         assert Decimal(str(b["amount_paid_for_group"])) == Decimal("0.00")
         assert Decimal(str(b["owed_expense_share"])) == Decimal("0.00")
         assert Decimal(str(b["expense_balance"])) == Decimal("0.00")
+
+
+# ---------------------------------------------------------------------------
+# Tests: dealer as loser (PLAN.md edge case)
+# ---------------------------------------------------------------------------
+
+
+def test_dealer_as_loser(client: TestClient):
+    """
+    Dealer is also a financial participant and ends with a negative net_balance.
+
+    Dealer:  buys 10000 chips for $100, ends with 4000 chips = $40  → poker_balance = -$60
+    Player:  buys 10000 chips for $100, ends with 16000 chips = $160 → poker_balance = +$60
+
+    Expected: dealer pays player $60 (transfer goes FROM dealer TO player).
+    """
+    dealer_token = _register_and_login(client, "d_lose@example.com")
+    player_token = _register_and_login(client, "p_lose@example.com")
+
+    game = _create_game(client, dealer_token)
+    gid = game["id"]
+    _join(client, player_token, game["invite_token"])
+    ps = _get_participants(client, dealer_token, gid)
+    dpid = next(p for p in ps if p["role_in_game"] == "dealer")["id"]
+    ppid = next(p for p in ps if p["role_in_game"] == "player")["id"]
+
+    _start(client, dealer_token, gid)
+    _buy_in(client, dealer_token, gid, dpid, cash=100.0, chips=10000.0)
+    _buy_in(client, dealer_token, gid, ppid, cash=100.0, chips=10000.0)
+
+    _set_final_stack(client, dealer_token, gid, dpid, chips=4000)
+    _set_final_stack(client, dealer_token, gid, ppid, chips=16000)
+    _close(client, dealer_token, gid)
+
+    r = _get_settlement(client, dealer_token, gid)
+    assert r.status_code == 200
+    body = r.json()
+
+    bals = {b["participant_id"]: b for b in body["balances"]}
+    assert Decimal(str(bals[dpid]["net_balance"])) == Decimal("-60.00")
+    assert Decimal(str(bals[ppid]["net_balance"])) == Decimal("60.00")
+
+    transfers = body["transfers"]
+    assert len(transfers) == 1
+    t = transfers[0]
+    assert t["from_participant_id"] == dpid   # dealer pays
+    assert t["to_participant_id"] == ppid     # player receives
+    assert Decimal(str(t["amount"])) == Decimal("60.00")
+
+
+# ---------------------------------------------------------------------------
+# Tests: participant with net_balance exactly 0.00 excluded from transfers
+# ---------------------------------------------------------------------------
+
+
+def test_zero_net_balance_excluded_from_transfers(client: TestClient):
+    """
+    A participant who breaks exactly even (net_balance == 0.00) must not appear
+    in any transfer row, either as payer or receiver.
+
+    Setup — three participants:
+      Dealer:   buys 10000 chips ($100), ends with 10000 chips ($100) → net $0.00
+      Player A: buys 10000 chips ($100), ends with 15000 chips ($150) → net +$50.00
+      Player B: buys 10000 chips ($100), ends with  5000 chips ($50)  → net -$50.00
+
+    Expected transfers: Player B pays Player A $50.  Dealer not in any transfer.
+    """
+    dealer_token = _register_and_login(client, "d_zero@example.com")
+    pa_token = _register_and_login(client, "pa_zero@example.com")
+    pb_token = _register_and_login(client, "pb_zero@example.com")
+
+    game = _create_game(client, dealer_token)
+    gid = game["id"]
+    _join(client, pa_token, game["invite_token"])
+    _join(client, pb_token, game["invite_token"])
+    ps = _get_participants(client, dealer_token, gid)
+    dpid = next(p for p in ps if p["role_in_game"] == "dealer")["id"]
+    player_pids = [p["id"] for p in ps if p["role_in_game"] == "player"]
+    # Identify A (ends with 15000) and B (ends with 5000) by assigning both first
+    pa_pid, pb_pid = player_pids[0], player_pids[1]
+
+    _start(client, dealer_token, gid)
+    for pid in [dpid, pa_pid, pb_pid]:
+        _buy_in(client, dealer_token, gid, pid, cash=100.0, chips=10000.0)
+
+    _set_final_stack(client, dealer_token, gid, dpid, chips=10000)   # dealer breaks even
+    _set_final_stack(client, dealer_token, gid, pa_pid, chips=15000)  # player A wins
+    _set_final_stack(client, dealer_token, gid, pb_pid, chips=5000)   # player B loses
+    _close(client, dealer_token, gid)
+
+    r = _get_settlement(client, dealer_token, gid)
+    assert r.status_code == 200
+    body = r.json()
+
+    bals = {b["participant_id"]: b for b in body["balances"]}
+    assert Decimal(str(bals[dpid]["net_balance"])) == Decimal("0.00")
+    assert Decimal(str(bals[pa_pid]["net_balance"])) == Decimal("50.00")
+    assert Decimal(str(bals[pb_pid]["net_balance"])) == Decimal("-50.00")
+
+    transfers = body["transfers"]
+    assert len(transfers) == 1
+    t = transfers[0]
+    # Dealer must not appear in any transfer
+    assert t["from_participant_id"] != dpid
+    assert t["to_participant_id"] != dpid
+    # Correct payer/receiver
+    assert t["from_participant_id"] == pb_pid
+    assert t["to_participant_id"] == pa_pid
+    assert Decimal(str(t["amount"])) == Decimal("50.00")

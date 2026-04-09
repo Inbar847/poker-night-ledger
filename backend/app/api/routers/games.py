@@ -8,6 +8,8 @@ from app.database.session import get_db
 from app.models.game import Game, GameStatus
 from app.models.participant import Participant, RoleInGame
 from app.models.user import User
+from app.realtime import events as rt_events
+from app.realtime.manager import manager
 from app.schemas.game import GameCreate, GameResponse, InviteLinkResponse
 from app.schemas.participant import (
     AddGuestRequest,
@@ -19,6 +21,36 @@ from app.services import game_service, participant_service
 from app.services.user_service import get_user_by_id
 
 router = APIRouter(prefix="/games", tags=["games"])
+
+
+# ---------------------------------------------------------------------------
+# Participant response builder — computes display_name for registered/guest
+# ---------------------------------------------------------------------------
+
+
+def _display_name(participant: Participant, user: User | None) -> str:
+    if participant.guest_name:
+        return participant.guest_name
+    if user and user.full_name:
+        return user.full_name
+    if user:
+        return user.email
+    return f"Player ({str(participant.id)[:8]})"
+
+
+def _build_participant_response(
+    participant: Participant, user: User | None = None
+) -> ParticipantResponse:
+    return ParticipantResponse.model_validate({
+        "id": participant.id,
+        "game_id": participant.game_id,
+        "user_id": participant.user_id,
+        "guest_name": participant.guest_name,
+        "display_name": _display_name(participant, user),
+        "participant_type": participant.participant_type,
+        "role_in_game": participant.role_in_game,
+        "joined_at": participant.joined_at,
+    })
 
 
 # ---------------------------------------------------------------------------
@@ -98,7 +130,7 @@ def generate_invite_link(
 
 
 @router.post("/join-by-token", response_model=ParticipantResponse, status_code=status.HTTP_201_CREATED)
-def join_by_token(
+async def join_by_token(
     body: JoinByTokenRequest,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -120,11 +152,14 @@ def join_by_token(
             status_code=status.HTTP_409_CONFLICT,
             detail="Already a participant in this game",
         )
-    return participant_service.join_by_token(db, game, current_user)
+    result = participant_service.join_by_token(db, game, current_user)
+    response_obj = _build_participant_response(result, current_user)
+    await manager.broadcast(game.id, rt_events.participant_joined(game.id, response_obj.model_dump(mode="json")))
+    return response_obj
 
 
 @router.post("/{game_id}/invite-user", response_model=ParticipantResponse, status_code=status.HTTP_201_CREATED)
-def invite_user(
+async def invite_user(
     game_id: uuid.UUID,
     body: InviteUserRequest,
     current_user: User = Depends(get_current_user),
@@ -146,11 +181,14 @@ def invite_user(
             status_code=status.HTTP_409_CONFLICT,
             detail="User is already a participant in this game",
         )
-    return participant_service.invite_user(db, game, invitee)
+    result = participant_service.invite_user(db, game, invitee)
+    response_obj = _build_participant_response(result, invitee)
+    await manager.broadcast(game_id, rt_events.participant_joined(game_id, response_obj.model_dump(mode="json")))
+    return response_obj
 
 
 @router.post("/{game_id}/guests", response_model=ParticipantResponse, status_code=status.HTTP_201_CREATED)
-def add_guest(
+async def add_guest(
     game_id: uuid.UUID,
     body: AddGuestRequest,
     current_user: User = Depends(get_current_user),
@@ -159,11 +197,14 @@ def add_guest(
     game = _get_game_or_404(db, game_id)
     participant = _get_participant_or_403(db, game_id, current_user.id)
     _require_dealer(participant)
-    return participant_service.add_guest(db, game, body.guest_name)
+    result = participant_service.add_guest(db, game, body.guest_name)
+    response_obj = _build_participant_response(result)
+    await manager.broadcast(game_id, rt_events.participant_joined(game_id, response_obj.model_dump(mode="json")))
+    return response_obj
 
 
 @router.post("/{game_id}/start", response_model=GameResponse)
-def start_game(
+async def start_game(
     game_id: uuid.UUID,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -172,13 +213,15 @@ def start_game(
     participant = _get_participant_or_403(db, game_id, current_user.id)
     _require_dealer(participant)
     try:
-        return game_service.start_game(db, game)
+        result = game_service.start_game(db, game)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    await manager.broadcast(game_id, rt_events.game_started(game_id))
+    return result
 
 
 @router.post("/{game_id}/close", response_model=GameResponse)
-def close_game(
+async def close_game(
     game_id: uuid.UUID,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -187,9 +230,13 @@ def close_game(
     participant = _get_participant_or_403(db, game_id, current_user.id)
     _require_dealer(participant)
     try:
-        return game_service.close_game(db, game)
+        result = game_service.close_game(db, game)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    # Broadcast both close and settlement-ready signals
+    await manager.broadcast(game_id, rt_events.game_closed(game_id))
+    await manager.broadcast(game_id, rt_events.settlement_updated(game_id))
+    return result
 
 
 @router.get("/{game_id}/participants", response_model=list[ParticipantResponse])
@@ -200,4 +247,14 @@ def get_participants(
 ) -> list[ParticipantResponse]:
     _get_game_or_404(db, game_id)
     _get_participant_or_403(db, game_id, current_user.id)
-    return participant_service.get_participants(db, game_id)
+    participants = participant_service.get_participants(db, game_id)
+    # Load users for registered participants to compute display_name
+    user_ids = [p.user_id for p in participants if p.user_id is not None]
+    users_by_id: dict[uuid.UUID, User] = {}
+    if user_ids:
+        for u in db.query(User).filter(User.id.in_(user_ids)).all():
+            users_by_id[u.id] = u
+    return [
+        _build_participant_response(p, users_by_id.get(p.user_id) if p.user_id else None)
+        for p in participants
+    ]

@@ -3,6 +3,8 @@ Ledger router — buy-ins, expenses, and final stacks for a live game.
 
 All mutation endpoints are dealer-only.
 All read endpoints require game participation.
+
+Stage 5: mutation endpoints are async so they can await manager.broadcast().
 """
 
 import uuid
@@ -15,6 +17,8 @@ from app.database.session import get_db
 from app.models.game import Game
 from app.models.participant import Participant, RoleInGame
 from app.models.user import User
+from app.realtime import events as rt_events
+from app.realtime.manager import manager
 from app.schemas.ledger import (
     BuyInCreate,
     BuyInResponse,
@@ -74,7 +78,7 @@ def _service_error_to_http(exc: ValueError) -> HTTPException:
     response_model=BuyInResponse,
     status_code=status.HTTP_201_CREATED,
 )
-def create_buy_in(
+async def create_buy_in(
     game_id: uuid.UUID,
     data: BuyInCreate,
     current_user: User = Depends(get_current_user),
@@ -84,9 +88,12 @@ def create_buy_in(
     participant = _get_participant_or_403(db, game_id, current_user.id)
     _require_dealer(participant)
     try:
-        return ledger_service.create_buy_in(db, game, data, current_user.id)
+        result = ledger_service.create_buy_in(db, game, data, current_user.id)
     except ValueError as exc:
         raise _service_error_to_http(exc) from exc
+    buy_in_data = BuyInResponse.model_validate(result).model_dump(mode="json")
+    await manager.broadcast(game_id, rt_events.buyin_created(game_id, buy_in_data))
+    return result
 
 
 @router.get("/{game_id}/buy-ins", response_model=list[BuyInResponse])
@@ -101,7 +108,7 @@ def list_buy_ins(
 
 
 @router.patch("/{game_id}/buy-ins/{buy_in_id}", response_model=BuyInResponse)
-def update_buy_in(
+async def update_buy_in(
     game_id: uuid.UUID,
     buy_in_id: uuid.UUID,
     data: BuyInUpdate,
@@ -117,13 +124,16 @@ def update_buy_in(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Buy-in not found")
 
     try:
-        return ledger_service.update_buy_in(db, game, buy_in, data)
+        result = ledger_service.update_buy_in(db, game, buy_in, data)
     except ValueError as exc:
         raise _service_error_to_http(exc) from exc
+    buy_in_data = BuyInResponse.model_validate(result).model_dump(mode="json")
+    await manager.broadcast(game_id, rt_events.buyin_updated(game_id, buy_in_data))
+    return result
 
 
 @router.delete("/{game_id}/buy-ins/{buy_in_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_buy_in(
+async def delete_buy_in(
     game_id: uuid.UUID,
     buy_in_id: uuid.UUID,
     current_user: User = Depends(get_current_user),
@@ -137,10 +147,12 @@ def delete_buy_in(
     if buy_in is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Buy-in not found")
 
+    deleted_id = buy_in.id
     try:
         ledger_service.delete_buy_in(db, game, buy_in)
     except ValueError as exc:
         raise _service_error_to_http(exc) from exc
+    await manager.broadcast(game_id, rt_events.buyin_deleted(game_id, deleted_id))
 
 
 # ---------------------------------------------------------------------------
@@ -153,7 +165,7 @@ def delete_buy_in(
     response_model=ExpenseResponse,
     status_code=status.HTTP_201_CREATED,
 )
-def create_expense(
+async def create_expense(
     game_id: uuid.UUID,
     data: ExpenseCreate,
     current_user: User = Depends(get_current_user),
@@ -163,9 +175,12 @@ def create_expense(
     participant = _get_participant_or_403(db, game_id, current_user.id)
     _require_dealer(participant)
     try:
-        return ledger_service.create_expense(db, game, data, current_user.id)
+        result = ledger_service.create_expense(db, game, data, current_user.id)
     except ValueError as exc:
         raise _service_error_to_http(exc) from exc
+    expense_data = ExpenseResponse.model_validate(result).model_dump(mode="json")
+    await manager.broadcast(game_id, rt_events.expense_created(game_id, expense_data))
+    return result
 
 
 @router.get("/{game_id}/expenses", response_model=list[ExpenseResponse])
@@ -180,7 +195,7 @@ def list_expenses(
 
 
 @router.patch("/{game_id}/expenses/{expense_id}", response_model=ExpenseResponse)
-def update_expense(
+async def update_expense(
     game_id: uuid.UUID,
     expense_id: uuid.UUID,
     data: ExpenseUpdate,
@@ -196,13 +211,16 @@ def update_expense(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Expense not found")
 
     try:
-        return ledger_service.update_expense(db, game, expense, data)
+        result = ledger_service.update_expense(db, game, expense, data)
     except ValueError as exc:
         raise _service_error_to_http(exc) from exc
+    expense_data = ExpenseResponse.model_validate(result).model_dump(mode="json")
+    await manager.broadcast(game_id, rt_events.expense_updated(game_id, expense_data))
+    return result
 
 
 @router.delete("/{game_id}/expenses/{expense_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_expense(
+async def delete_expense(
     game_id: uuid.UUID,
     expense_id: uuid.UUID,
     current_user: User = Depends(get_current_user),
@@ -216,10 +234,12 @@ def delete_expense(
     if expense is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Expense not found")
 
+    deleted_id = expense.id
     try:
         ledger_service.delete_expense(db, game, expense)
     except ValueError as exc:
         raise _service_error_to_http(exc) from exc
+    await manager.broadcast(game_id, rt_events.expense_deleted(game_id, deleted_id))
 
 
 # ---------------------------------------------------------------------------
@@ -231,7 +251,7 @@ def delete_expense(
     "/{game_id}/final-stacks/{participant_id}",
     response_model=FinalStackResponse,
 )
-def upsert_final_stack(
+async def upsert_final_stack(
     game_id: uuid.UUID,
     participant_id: uuid.UUID,
     data: FinalStackUpsert,
@@ -242,9 +262,12 @@ def upsert_final_stack(
     requester = _get_participant_or_403(db, game_id, current_user.id)
     _require_dealer(requester)
     try:
-        return ledger_service.upsert_final_stack(db, game, participant_id, data)
+        result = ledger_service.upsert_final_stack(db, game, participant_id, data)
     except ValueError as exc:
         raise _service_error_to_http(exc) from exc
+    stack_data = FinalStackResponse.model_validate(result).model_dump(mode="json")
+    await manager.broadcast(game_id, rt_events.final_stack_updated(game_id, stack_data))
+    return result
 
 
 @router.get("/{game_id}/final-stacks", response_model=list[FinalStackResponse])

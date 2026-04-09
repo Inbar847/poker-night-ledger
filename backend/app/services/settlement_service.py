@@ -10,11 +10,14 @@ Calculation chain per participant:
   expense_balance       = amount_paid - owed_share
   net_balance           = poker_balance + expense_balance
 
-Transfer optimization (greedy, deterministic):
+Transfer reduction (greedy, deterministic):
   - Debtors  sorted by (net_balance ASC,  participant_id ASC)  → most negative first
   - Creditors sorted by (net_balance DESC, participant_id ASC) → most positive first
   - Each debtor is matched to creditors one at a time until the debtor's obligation
-    is cleared.  This minimises the number of transfers.
+    is cleared, producing a compact, deterministic transfer list.
+  - This is a greedy heuristic, not a globally optimal algorithm; finding the true
+    minimum transfer count is NP-hard in general.  For typical poker games (≤10
+    players) the greedy output is practically indistinguishable from optimal.
 
 Rounding:
   chip_cash_rate is Numeric(12,4). Multiplying chips × rate may produce up to 6
@@ -211,13 +214,16 @@ def _build_calcs(db: Session, game: Game) -> list[_ParticipantCalc]:
 
 def _generate_transfers(calcs: list[_ParticipantCalc]) -> list[Transfer]:
     """
-    Generate a minimized, deterministic transfer list from computed balances.
+    Generate a compact, deterministic transfer list from computed balances.
 
     Only called when all participants have a net_balance (is_complete == True).
 
     Sort order for determinism:
     - Debtors:   (net_balance ASC,  str(participant_id) ASC)  → most negative first
     - Creditors: (net_balance DESC, str(participant_id) ASC)  → most positive first
+
+    Participants with net_balance == 0 are excluded from both lists and produce
+    no transfer rows.
     """
     debtors = sorted(
         [c for c in calcs if c.net_balance is not None and c.net_balance < Decimal("0")],

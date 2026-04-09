@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_user
 from app.database.session import get_db
-from app.models.game import GameStatus
+from app.models.game import Game, GameStatus
 from app.models.user import User
 from app.schemas.settlement import SettlementAuditResponse, SettlementResponse
 from app.services import game_service, participant_service, settlement_service
@@ -25,7 +25,7 @@ from app.services import game_service, participant_service, settlement_service
 router = APIRouter(prefix="/games", tags=["settlement"])
 
 
-def _get_closed_game_or_error(db: Session, game_id: uuid.UUID):
+def _get_closed_game_or_error(db: Session, game_id: uuid.UUID) -> Game:
     game = game_service.get_game_by_id(db, game_id)
     if game is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Game not found")

@@ -940,3 +940,55 @@ def test_full_game_ledger_flow(client: TestClient):
         headers=_auth(dealer_token),
     )
     assert r_fail.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# Stage 9: validation edge cases
+# ---------------------------------------------------------------------------
+
+
+def test_update_buy_in_all_none_fields_returns_422(client: TestClient):
+    """PATCH buy-in with no fields set must be rejected at schema level."""
+    dealer_token, _, game_id, dealer_pid, _ = _setup_active_game(client)
+    buy_in = client.post(
+        f"/games/{game_id}/buy-ins",
+        json=_buy_in_payload(dealer_pid),
+        headers=_auth(dealer_token),
+    ).json()
+    resp = client.patch(
+        f"/games/{game_id}/buy-ins/{buy_in['id']}",
+        json={},
+        headers=_auth(dealer_token),
+    )
+    assert resp.status_code == 422
+
+
+def test_create_expense_whitespace_only_title_returns_422(client: TestClient):
+    """Expense title consisting only of whitespace must be rejected."""
+    dealer_token, _, game_id, dealer_pid, player_pid = _setup_active_game(client)
+    payload = {
+        "title": "   ",
+        "total_amount": 20.0,
+        "paid_by_participant_id": dealer_pid,
+        "splits": [{"participant_id": dealer_pid, "share_amount": 20.0}],
+    }
+    resp = client.post(
+        f"/games/{game_id}/expenses", json=payload, headers=_auth(dealer_token)
+    )
+    assert resp.status_code == 422
+
+
+def test_update_expense_whitespace_only_title_returns_422(client: TestClient):
+    """PATCH expense title to whitespace-only must be rejected."""
+    dealer_token, _, game_id, dealer_pid, player_pid = _setup_active_game(client)
+    expense = client.post(
+        f"/games/{game_id}/expenses",
+        json=_expense_payload(dealer_pid, [dealer_pid, player_pid]),
+        headers=_auth(dealer_token),
+    ).json()
+    resp = client.patch(
+        f"/games/{game_id}/expenses/{expense['id']}",
+        json={"title": "   "},
+        headers=_auth(dealer_token),
+    )
+    assert resp.status_code == 422

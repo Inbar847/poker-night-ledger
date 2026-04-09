@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from decimal import Decimal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.models.game import GameStatus
 
@@ -12,6 +12,14 @@ class GameCreate(BaseModel):
     scheduled_at: datetime | None = None
     chip_cash_rate: Decimal = Field(gt=0)
     currency: str = Field(default="USD", max_length=10)
+
+    @field_validator("title", mode="before")
+    @classmethod
+    def strip_title(cls, v: str) -> str:
+        stripped = v.strip()
+        if not stripped:
+            raise ValueError("title must not be blank or whitespace-only.")
+        return stripped
 
 
 class GameResponse(BaseModel):

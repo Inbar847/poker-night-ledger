@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routers import auth, games, ledger, settlement, users
+from app.api.routers import auth, games, history, ledger, settlement, users, ws
 from app.core.config import settings
 
 app = FastAPI(
@@ -22,6 +22,8 @@ app.include_router(users.router)
 app.include_router(games.router)
 app.include_router(ledger.router)
 app.include_router(settlement.router)
+app.include_router(history.router)
+app.include_router(ws.router)
 
 
 @app.get("/health")
