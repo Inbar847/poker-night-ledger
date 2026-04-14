@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session
 
 from app.models.game import Game, GameStatus
 from app.models.ledger import BuyIn, Expense, ExpenseSplit, FinalStack
-from app.models.participant import Participant
+from app.models.participant import Participant, ParticipantStatus
 from app.schemas.ledger import (
     BuyInCreate,
     BuyInUpdate,
@@ -98,6 +98,11 @@ def create_buy_in(
     if participant is None:
         raise ValueError(
             f"Participant {data.participant_id} does not belong to game {game.id}"
+        )
+
+    if participant.status == ParticipantStatus.left_early:
+        raise ValueError(
+            "Cannot add a buy-in for a participant who has left early."
         )
 
     buy_in = BuyIn(

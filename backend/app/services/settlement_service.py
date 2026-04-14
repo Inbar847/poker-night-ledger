@@ -29,14 +29,17 @@ Rounding:
 
 import uuid
 from dataclasses import dataclass, field
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import ROUND_FLOOR, ROUND_HALF_UP, Decimal
 
 from sqlalchemy.orm import Session
 
 from app.models.game import Game
 from app.models.ledger import BuyIn, Expense, ExpenseSplit, FinalStack
-from app.models.participant import Participant
+from app.models.participant import Participant, ParticipantStatus
 from app.models.user import User
+
+# Only active and left_early participants are included in settlement.
+_SETTLEMENT_ELIGIBLE_STATUSES = (ParticipantStatus.active, ParticipantStatus.left_early)
 from app.schemas.settlement import (
     BuyInLineItem,
     ExpensePaidLineItem,
@@ -128,10 +131,17 @@ def _compute_calc(
 
 
 def _build_calcs(db: Session, game: Game) -> list[_ParticipantCalc]:
-    """Load all game data and build per-participant calculation objects."""
+    """Load all game data and build per-participant calculation objects.
+
+    Only settlement-eligible participants (active, left_early) are included.
+    Participants with removed_before_start are excluded entirely.
+    """
     participants: list[Participant] = (
         db.query(Participant)
-        .filter(Participant.game_id == game.id)
+        .filter(
+            Participant.game_id == game.id,
+            Participant.status.in_(_SETTLEMENT_ELIGIBLE_STATUSES),
+        )
         .order_by(Participant.joined_at)
         .all()
     )
@@ -212,31 +222,45 @@ def _build_calcs(db: Session, game: Game) -> list[_ParticipantCalc]:
 # ---------------------------------------------------------------------------
 
 
-def _generate_transfers(calcs: list[_ParticipantCalc]) -> list[Transfer]:
+def _generate_transfers(
+    calcs: list[_ParticipantCalc],
+    shortage_shares: dict[uuid.UUID, Decimal] | None = None,
+) -> list[Transfer]:
     """
     Generate a compact, deterministic transfer list from computed balances.
+
+    When shortage_shares is provided, uses adjusted_net_balance
+    (net_balance - shortage_share) instead of raw net_balance for transfers.
 
     Only called when all participants have a net_balance (is_complete == True).
 
     Sort order for determinism:
-    - Debtors:   (net_balance ASC,  str(participant_id) ASC)  → most negative first
-    - Creditors: (net_balance DESC, str(participant_id) ASC)  → most positive first
+    - Debtors:   (balance ASC,  str(participant_id) ASC)  → most negative first
+    - Creditors: (balance DESC, str(participant_id) ASC)  → most positive first
 
-    Participants with net_balance == 0 are excluded from both lists and produce
+    Participants with balance == 0 are excluded from both lists and produce
     no transfer rows.
     """
+    shares = shortage_shares or {}
+
+    def _effective_balance(c: _ParticipantCalc) -> Decimal:
+        if c.net_balance is None:
+            return Decimal("0")
+        share = shares.get(c.participant.id, Decimal("0"))
+        return (c.net_balance - share).quantize(_TWO_PLACES, rounding=ROUND_HALF_UP)
+
     debtors = sorted(
-        [c for c in calcs if c.net_balance is not None and c.net_balance < Decimal("0")],
-        key=lambda c: (c.net_balance, str(c.participant.id)),
+        [c for c in calcs if c.net_balance is not None and _effective_balance(c) < Decimal("0")],
+        key=lambda c: (_effective_balance(c), str(c.participant.id)),
     )
     creditors = sorted(
-        [c for c in calcs if c.net_balance is not None and c.net_balance > Decimal("0")],
-        key=lambda c: (-c.net_balance, str(c.participant.id)),
+        [c for c in calcs if c.net_balance is not None and _effective_balance(c) > Decimal("0")],
+        key=lambda c: (-_effective_balance(c), str(c.participant.id)),
     )
 
-    # Work on mutable copies of remaining amounts
-    debtor_remaining = [abs(c.net_balance) for c in debtors]  # type: ignore[arg-type]
-    creditor_remaining = [c.net_balance for c in creditors]    # type: ignore[arg-type]
+    # Work on mutable copies of remaining amounts (using adjusted balances)
+    debtor_remaining = [abs(_effective_balance(c)) for c in debtors]
+    creditor_remaining = [_effective_balance(c) for c in creditors]
 
     transfers: list[Transfer] = []
     i = 0
@@ -279,6 +303,101 @@ def _generate_transfers(calcs: list[_ParticipantCalc]) -> list[Transfer]:
 
 
 # ---------------------------------------------------------------------------
+# Shortage calculation
+# ---------------------------------------------------------------------------
+
+
+def compute_shortage_amount(calcs: list[_ParticipantCalc]) -> Decimal:
+    """
+    Return the shortage amount (≥ 0) from raw net balances.
+
+    Shortage is defined as: sum(net_balance for all complete participants) > 0.
+    A positive sum means participants collectively claim more cash value than
+    they put in (due to chip-rate rounding), so winners must absorb the gap.
+
+    Returns 0.00 when settlement is incomplete or no shortage exists.
+    """
+    if not all(c.net_balance is not None for c in calcs):
+        return Decimal("0")
+    total = sum(
+        (c.net_balance for c in calcs if c.net_balance is not None),
+        Decimal("0"),
+    ).quantize(_TWO_PLACES, rounding=ROUND_HALF_UP)
+    return max(total, Decimal("0"))
+
+
+def distribute_shortage(
+    calcs: list[_ParticipantCalc],
+    shortage_amount: Decimal,
+    strategy: str,
+) -> dict[uuid.UUID, Decimal]:
+    """
+    Return a mapping of participant_id → shortage_share (all ≥ 0).
+
+    Algorithms:
+    - proportional_winners: only participants with raw_net > 0 absorb.
+      Each winner's share is proportional to their raw winning amount,
+      floored to 2dp. The 1¢ remainder is distributed to the largest
+      winner(s) first (stable tie-break: participant_id ASC).
+      If no winners exist, falls back to equal_all.
+
+    - equal_all: all participants with a final stack absorb equally.
+      Base share floored to 2dp. Remainder distributed 1¢ at a time
+      in participant_id ASC order.
+
+    Rounding guarantee: sum(shares.values()) == shortage_amount exactly.
+    """
+    if shortage_amount <= Decimal("0"):
+        return {}
+
+    complete_calcs = [c for c in calcs if c.net_balance is not None]
+    if not complete_calcs:
+        return {}
+
+    effective_strategy = strategy
+    winners = [c for c in complete_calcs if c.net_balance > Decimal("0")]  # type: ignore[operator]
+    if effective_strategy == "proportional_winners" and not winners:
+        effective_strategy = "equal_all"
+
+    if effective_strategy == "proportional_winners":
+        total_winner_net = sum(c.net_balance for c in winners)  # type: ignore[misc]
+        # Floor each share to avoid over-allocation
+        sorted_winners = sorted(
+            winners,
+            key=lambda c: (-c.net_balance, str(c.participant.id)),  # type: ignore[operator]
+        )
+        shares: dict[uuid.UUID, Decimal] = {}
+        allocated = Decimal("0")
+        for w in sorted_winners:
+            raw_share = (
+                w.net_balance / total_winner_net * shortage_amount  # type: ignore[operator]
+            ).quantize(_TWO_PLACES, rounding=ROUND_FLOOR)
+            shares[w.participant.id] = raw_share
+            allocated += raw_share
+
+        # Distribute remainder 1¢ at a time, largest winner first
+        remainder_cents = int((shortage_amount - allocated) / Decimal("0.01"))
+        for w in sorted_winners[:remainder_cents]:
+            shares[w.participant.id] += Decimal("0.01")
+
+        return shares
+
+    # equal_all
+    n = len(complete_calcs)
+    base = (shortage_amount / n).quantize(_TWO_PLACES, rounding=ROUND_FLOOR)
+    sorted_pids = sorted(
+        [c.participant.id for c in complete_calcs], key=str
+    )
+    shares_eq: dict[uuid.UUID, Decimal] = {pid: base for pid in sorted_pids}
+    allocated_eq = base * n
+    remainder_cents_eq = int((shortage_amount - allocated_eq) / Decimal("0.01"))
+    for pid in sorted_pids[:remainder_cents_eq]:
+        shares_eq[pid] += Decimal("0.01")
+
+    return shares_eq
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
@@ -287,7 +406,16 @@ def _is_complete(calcs: list[_ParticipantCalc]) -> bool:
     return all(c.net_balance is not None for c in calcs)
 
 
-def _to_participant_balance(calc: _ParticipantCalc) -> ParticipantBalance:
+def _to_participant_balance(
+    calc: _ParticipantCalc,
+    shortage_shares: dict[uuid.UUID, Decimal] | None = None,
+) -> ParticipantBalance:
+    share = (shortage_shares or {}).get(calc.participant.id, Decimal("0"))
+    adjusted = (
+        (calc.net_balance - share).quantize(_TWO_PLACES, rounding=ROUND_HALF_UP)
+        if calc.net_balance is not None
+        else None
+    )
     return ParticipantBalance(
         participant_id=calc.participant.id,
         display_name=calc.display_name,
@@ -300,10 +428,21 @@ def _to_participant_balance(calc: _ParticipantCalc) -> ParticipantBalance:
         owed_expense_share=calc.owed_expense_share,
         expense_balance=calc.expense_balance,
         net_balance=calc.net_balance,
+        shortage_share=share,
+        adjusted_net_balance=adjusted,
     )
 
 
-def _to_participant_audit(calc: _ParticipantCalc) -> ParticipantAudit:
+def _to_participant_audit(
+    calc: _ParticipantCalc,
+    shortage_shares: dict[uuid.UUID, Decimal] | None = None,
+) -> ParticipantAudit:
+    share = (shortage_shares or {}).get(calc.participant.id, Decimal("0"))
+    adjusted = (
+        (calc.net_balance - share).quantize(_TWO_PLACES, rounding=ROUND_HALF_UP)
+        if calc.net_balance is not None
+        else None
+    )
     buy_in_items = [
         BuyInLineItem(
             buy_in_id=b.id,
@@ -342,6 +481,8 @@ def _to_participant_audit(calc: _ParticipantCalc) -> ParticipantAudit:
         owed_expense_share=calc.owed_expense_share,
         expense_balance=calc.expense_balance,
         net_balance=calc.net_balance,
+        shortage_share=share,
+        adjusted_net_balance=adjusted,
         buy_in_items=buy_in_items,
         expenses_paid_items=expenses_paid_items,
         expense_split_items=expense_split_items,
@@ -349,10 +490,22 @@ def _to_participant_audit(calc: _ParticipantCalc) -> ParticipantAudit:
 
 
 def get_settlement(db: Session, game: Game) -> SettlementResponse:
-    """Compute and return the settlement summary for a game."""
+    """Compute and return the settlement summary for a game.
+
+    If the game was closed with a shortage strategy, shortage_shares are
+    applied to adjusted_net_balance and transfers.
+    """
     calcs = _build_calcs(db, game)
     complete = _is_complete(calcs)
-    transfers = _generate_transfers(calcs) if complete else []
+
+    shortage_amount = game.shortage_amount or Decimal("0")
+    shortage_strategy = game.shortage_strategy
+
+    shortage_shares: dict[uuid.UUID, Decimal] = {}
+    if complete and shortage_amount > Decimal("0") and shortage_strategy:
+        shortage_shares = distribute_shortage(calcs, shortage_amount, shortage_strategy)
+
+    transfers = _generate_transfers(calcs, shortage_shares) if complete else []
 
     return SettlementResponse(
         game_id=game.id,
@@ -360,8 +513,57 @@ def get_settlement(db: Session, game: Game) -> SettlementResponse:
         chip_cash_rate=game.chip_cash_rate,
         currency=game.currency,
         is_complete=complete,
-        balances=[_to_participant_balance(c) for c in calcs],
+        balances=[_to_participant_balance(c, shortage_shares) for c in calcs],
         transfers=transfers,
+        shortage_amount=shortage_amount,
+        shortage_strategy=shortage_strategy,
+    )
+
+
+def resettle_game(db: Session, game: Game) -> SettlementResponse:
+    """Recompute settlement for a closed game after a retroactive edit.
+
+    - Uses stored shortage_strategy from the game record (if any)
+    - Re-evaluates shortage amount from current ledger data
+    - If shortage is eliminated, clears shortage fields on the game
+    - If shortage persists/changes, updates shortage_amount on the game
+    - Returns the new SettlementResponse (used by caller for notifications)
+
+    Uses flush() so the caller controls the transaction boundary.
+    """
+    calcs = _build_calcs(db, game)
+    new_shortage = compute_shortage_amount(calcs)
+
+    strategy = game.shortage_strategy
+
+    if new_shortage > Decimal("0") and strategy:
+        game.shortage_amount = new_shortage
+    elif new_shortage <= Decimal("0"):
+        # Shortage eliminated — clear fields
+        game.shortage_amount = None
+        game.shortage_strategy = None
+        strategy = None
+
+    db.flush()
+
+    # Now compute the final settlement with updated shortage fields
+    shortage_amount = game.shortage_amount or Decimal("0")
+    shortage_shares: dict[uuid.UUID, Decimal] = {}
+    if _is_complete(calcs) and shortage_amount > Decimal("0") and strategy:
+        shortage_shares = distribute_shortage(calcs, shortage_amount, strategy)
+
+    transfers = _generate_transfers(calcs, shortage_shares) if _is_complete(calcs) else []
+
+    return SettlementResponse(
+        game_id=game.id,
+        game_status=game.status.value,
+        chip_cash_rate=game.chip_cash_rate,
+        currency=game.currency,
+        is_complete=_is_complete(calcs),
+        balances=[_to_participant_balance(c, shortage_shares) for c in calcs],
+        transfers=transfers,
+        shortage_amount=shortage_amount,
+        shortage_strategy=game.shortage_strategy,
     )
 
 
@@ -369,7 +571,15 @@ def get_settlement_audit(db: Session, game: Game) -> SettlementAuditResponse:
     """Compute and return the full audit breakdown for a game."""
     calcs = _build_calcs(db, game)
     complete = _is_complete(calcs)
-    transfers = _generate_transfers(calcs) if complete else []
+
+    shortage_amount = game.shortage_amount or Decimal("0")
+    shortage_strategy = game.shortage_strategy
+
+    shortage_shares: dict[uuid.UUID, Decimal] = {}
+    if complete and shortage_amount > Decimal("0") and shortage_strategy:
+        shortage_shares = distribute_shortage(calcs, shortage_amount, shortage_strategy)
+
+    transfers = _generate_transfers(calcs, shortage_shares) if complete else []
 
     completed_net_balances = [c.net_balance for c in calcs if c.net_balance is not None]
     net_balance_sum: Decimal | None = None
@@ -385,6 +595,8 @@ def get_settlement_audit(db: Session, game: Game) -> SettlementAuditResponse:
         currency=game.currency,
         is_complete=complete,
         net_balance_sum=net_balance_sum,
-        participants=[_to_participant_audit(c) for c in calcs],
+        participants=[_to_participant_audit(c, shortage_shares) for c in calcs],
         transfers=transfers,
+        shortage_amount=shortage_amount,
+        shortage_strategy=shortage_strategy,
     )

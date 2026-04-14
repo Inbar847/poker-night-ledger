@@ -13,7 +13,7 @@
  *   />
  *
  * Used in: PublicProfileScreen (Stage 12), FriendsScreen (Stage 13),
- *          InvitePlayerModal (Stage 14).
+ *          InviteFriendModal (Stage 22).
  */
 
 import { useQuery } from "@tanstack/react-query";

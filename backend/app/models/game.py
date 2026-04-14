@@ -57,3 +57,10 @@ class Game(Base):
     closed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # Shortage resolution (set when closing a game with a shortage)
+    shortage_amount: Mapped[Decimal | None] = mapped_column(
+        Numeric(12, 2), nullable=True
+    )
+    shortage_strategy: Mapped[str | None] = mapped_column(
+        String(30), nullable=True
+    )

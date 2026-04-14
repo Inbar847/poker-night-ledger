@@ -14,7 +14,10 @@
       "Bash(pytest *)",
       "Bash(alembic *)",
       "Bash(docker compose *)",
-      "Bash(uvicorn *)"
+      "Bash(uvicorn *)",
+      "Bash(tasklist)",
+      "Bash(taskkill //F //IM python.exe //T)",
+      "Bash(taskkill //F //IM python3.exe //T)"
     ],
     "deny": [
       "Read(./.env)",

@@ -51,3 +51,14 @@ export function useMarkAllRead() {
     },
   });
 }
+
+export function useDeleteAllNotifications() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: notificationsService.deleteAllNotifications,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.notifications });
+      queryClient.invalidateQueries({ queryKey: queryKeys.notificationsUnread });
+    },
+  });
+}

@@ -6,6 +6,7 @@ Test helper pattern:
   player token, dealer participant id, and player participant id needed by most tests.
 """
 
+import pytest
 from fastapi.testclient import TestClient
 
 # ---------------------------------------------------------------------------
@@ -110,7 +111,10 @@ def test_start_game_already_active_returns_400(client: TestClient):
 
 
 def test_close_game_success(client: TestClient):
-    dealer_token, _, game_id, *_ = _setup_active_game(client)
+    dealer_token, _, game_id, dealer_pid, player_pid = _setup_active_game(client)
+    # All participants need final stacks before close (0 chips = no shortage)
+    client.put(f"/games/{game_id}/final-stacks/{dealer_pid}", json={"chips_amount": 0.0}, headers=_auth(dealer_token))
+    client.put(f"/games/{game_id}/final-stacks/{player_pid}", json={"chips_amount": 0.0}, headers=_auth(dealer_token))
     resp = client.post(f"/games/{game_id}/close", headers=_auth(dealer_token))
     assert resp.status_code == 200
     body = resp.json()
@@ -221,7 +225,9 @@ def test_create_buy_in_on_lobby_game_returns_400(client: TestClient):
 
 
 def test_create_buy_in_on_closed_game_returns_400(client: TestClient):
-    dealer_token, _, game_id, dealer_pid, _ = _setup_active_game(client)
+    dealer_token, _, game_id, dealer_pid, player_pid = _setup_active_game(client)
+    client.put(f"/games/{game_id}/final-stacks/{dealer_pid}", json={"chips_amount": 0.0}, headers=_auth(dealer_token))
+    client.put(f"/games/{game_id}/final-stacks/{player_pid}", json={"chips_amount": 0.0}, headers=_auth(dealer_token))
     client.post(f"/games/{game_id}/close", headers=_auth(dealer_token))
     resp = client.post(
         f"/games/{game_id}/buy-ins",
@@ -658,6 +664,35 @@ def test_update_expense_duplicate_participant_in_splits_rejected(client: TestCli
     assert resp.status_code == 400
 
 
+def test_expense_split_unique_constraint_at_db_level(client: TestClient, db_session):
+    """The DB itself must reject duplicate (expense_id, participant_id) rows,
+    even if application validation is somehow bypassed."""
+    from app.models.ledger import ExpenseSplit
+    from sqlalchemy.exc import IntegrityError
+    import uuid
+
+    dealer_token, _, game_id, dealer_pid, player_pid = _setup_active_game(client)
+    expense = client.post(
+        f"/games/{game_id}/expenses",
+        json=_expense_payload(dealer_pid, [dealer_pid, player_pid]),
+        headers=_auth(dealer_token),
+    ).json()
+
+    expense_id = uuid.UUID(expense["id"])
+    participant_id = uuid.UUID(dealer_pid)
+
+    # Try to insert a duplicate split directly at the DB level
+    duplicate = ExpenseSplit(
+        expense_id=expense_id,
+        participant_id=participant_id,
+        share_amount=10.00,
+    )
+    db_session.add(duplicate)
+    with pytest.raises(IntegrityError):
+        db_session.flush()
+    db_session.rollback()
+
+
 def test_update_expense_dealer_only(client: TestClient):
     dealer_token, player_token, game_id, dealer_pid, player_pid = _setup_active_game(client)
     expense = client.post(
@@ -694,6 +729,7 @@ def test_delete_expense_success(client: TestClient):
 
 
 def test_delete_expense_dealer_only(client: TestClient):
+    """Non-creator non-dealer cannot delete an expense created by the dealer."""
     dealer_token, player_token, game_id, dealer_pid, player_pid = _setup_active_game(client)
     expense = client.post(
         f"/games/{game_id}/expenses",
@@ -704,6 +740,158 @@ def test_delete_expense_dealer_only(client: TestClient):
         f"/games/{game_id}/expenses/{expense['id']}", headers=_auth(player_token)
     )
     assert resp.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# Expenses: player-added side expenses (Stage 27)
+# ---------------------------------------------------------------------------
+
+
+def test_player_creates_expense_self_as_payer(client: TestClient):
+    """Non-dealer active participant creates expense with self as payer — allowed."""
+    _, player_token, game_id, dealer_pid, player_pid = _setup_active_game(client)
+    payload = _expense_payload(player_pid, [dealer_pid, player_pid])
+    resp = client.post(
+        f"/games/{game_id}/expenses", json=payload, headers=_auth(player_token)
+    )
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["paid_by_participant_id"] == player_pid
+
+
+def test_player_creates_expense_different_payer_blocked(client: TestClient):
+    """Non-dealer cannot create expense claiming someone else paid."""
+    _, player_token, game_id, dealer_pid, player_pid = _setup_active_game(client)
+    payload = _expense_payload(dealer_pid, [dealer_pid, player_pid])
+    resp = client.post(
+        f"/games/{game_id}/expenses", json=payload, headers=_auth(player_token)
+    )
+    assert resp.status_code == 403
+
+
+def test_dealer_creates_expense_any_payer(client: TestClient):
+    """Dealer can create expense with any participant as payer."""
+    dealer_token, _, game_id, dealer_pid, player_pid = _setup_active_game(client)
+    # Dealer sets player as payer (not themselves)
+    payload = _expense_payload(player_pid, [dealer_pid, player_pid])
+    resp = client.post(
+        f"/games/{game_id}/expenses", json=payload, headers=_auth(dealer_token)
+    )
+    assert resp.status_code == 201
+    assert resp.json()["paid_by_participant_id"] == player_pid
+
+
+def test_left_early_participant_cannot_create_expense(client: TestClient):
+    """Participant who has cashed out (left_early) cannot create expenses."""
+    dealer_token, player_token, game_id, dealer_pid, player_pid = _setup_active_game(client)
+    # Player cashes out
+    client.post(
+        f"/games/{game_id}/cashout",
+        json={"chips_amount": "1000"},
+        headers=_auth(player_token),
+    )
+    # Player tries to create expense after leaving
+    payload = _expense_payload(player_pid, [dealer_pid, player_pid])
+    resp = client.post(
+        f"/games/{game_id}/expenses", json=payload, headers=_auth(player_token)
+    )
+    assert resp.status_code == 403
+
+
+def test_creator_edits_own_expense(client: TestClient):
+    """The expense creator (non-dealer) can edit their own expense."""
+    _, player_token, game_id, dealer_pid, player_pid = _setup_active_game(client)
+    expense = client.post(
+        f"/games/{game_id}/expenses",
+        json=_expense_payload(player_pid, [dealer_pid, player_pid]),
+        headers=_auth(player_token),
+    ).json()
+    resp = client.patch(
+        f"/games/{game_id}/expenses/{expense['id']}",
+        json={"title": "Updated by creator"},
+        headers=_auth(player_token),
+    )
+    assert resp.status_code == 200
+    assert resp.json()["title"] == "Updated by creator"
+
+
+def test_creator_deletes_own_expense(client: TestClient):
+    """The expense creator (non-dealer) can delete their own expense."""
+    _, player_token, game_id, dealer_pid, player_pid = _setup_active_game(client)
+    expense = client.post(
+        f"/games/{game_id}/expenses",
+        json=_expense_payload(player_pid, [dealer_pid, player_pid]),
+        headers=_auth(player_token),
+    ).json()
+    resp = client.delete(
+        f"/games/{game_id}/expenses/{expense['id']}", headers=_auth(player_token)
+    )
+    assert resp.status_code == 204
+
+
+def test_non_creator_non_dealer_cannot_edit_expense(client: TestClient):
+    """A participant who is neither creator nor dealer cannot edit an expense."""
+    dealer_token, player_token, game_id, dealer_pid, player_pid = _setup_active_game(client)
+    # Dealer creates the expense
+    expense = client.post(
+        f"/games/{game_id}/expenses",
+        json=_expense_payload(dealer_pid, [dealer_pid, player_pid]),
+        headers=_auth(dealer_token),
+    ).json()
+    # Player (non-creator, non-dealer) tries to edit
+    resp = client.patch(
+        f"/games/{game_id}/expenses/{expense['id']}",
+        json={"title": "Hacked"},
+        headers=_auth(player_token),
+    )
+    assert resp.status_code == 403
+
+
+def test_non_creator_non_dealer_cannot_delete_expense(client: TestClient):
+    """A participant who is neither creator nor dealer cannot delete an expense."""
+    dealer_token, player_token, game_id, dealer_pid, player_pid = _setup_active_game(client)
+    expense = client.post(
+        f"/games/{game_id}/expenses",
+        json=_expense_payload(dealer_pid, [dealer_pid, player_pid]),
+        headers=_auth(dealer_token),
+    ).json()
+    resp = client.delete(
+        f"/games/{game_id}/expenses/{expense['id']}", headers=_auth(player_token)
+    )
+    assert resp.status_code == 403
+
+
+def test_dealer_edits_any_expense(client: TestClient):
+    """Dealer can edit an expense created by another participant."""
+    dealer_token, player_token, game_id, dealer_pid, player_pid = _setup_active_game(client)
+    # Player creates expense
+    expense = client.post(
+        f"/games/{game_id}/expenses",
+        json=_expense_payload(player_pid, [dealer_pid, player_pid]),
+        headers=_auth(player_token),
+    ).json()
+    # Dealer edits it
+    resp = client.patch(
+        f"/games/{game_id}/expenses/{expense['id']}",
+        json={"title": "Dealer override"},
+        headers=_auth(dealer_token),
+    )
+    assert resp.status_code == 200
+    assert resp.json()["title"] == "Dealer override"
+
+
+def test_dealer_deletes_any_expense(client: TestClient):
+    """Dealer can delete an expense created by another participant."""
+    dealer_token, player_token, game_id, dealer_pid, player_pid = _setup_active_game(client)
+    expense = client.post(
+        f"/games/{game_id}/expenses",
+        json=_expense_payload(player_pid, [dealer_pid, player_pid]),
+        headers=_auth(player_token),
+    ).json()
+    resp = client.delete(
+        f"/games/{game_id}/expenses/{expense['id']}", headers=_auth(dealer_token)
+    )
+    assert resp.status_code == 204
 
 
 # ---------------------------------------------------------------------------
@@ -789,7 +977,9 @@ def test_upsert_final_stack_on_lobby_game_returns_400(client: TestClient):
 
 
 def test_upsert_final_stack_on_closed_game_returns_400(client: TestClient):
-    dealer_token, _, game_id, dealer_pid, _ = _setup_active_game(client)
+    dealer_token, _, game_id, dealer_pid, player_pid = _setup_active_game(client)
+    client.put(f"/games/{game_id}/final-stacks/{dealer_pid}", json={"chips_amount": 0.0}, headers=_auth(dealer_token))
+    client.put(f"/games/{game_id}/final-stacks/{player_pid}", json={"chips_amount": 0.0}, headers=_auth(dealer_token))
     client.post(f"/games/{game_id}/close", headers=_auth(dealer_token))
     resp = client.put(
         f"/games/{game_id}/final-stacks/{dealer_pid}",

@@ -44,6 +44,14 @@ def mark_all_read(
     return MarkAllReadResponse(marked_read=marked)
 
 
+@router.delete("", status_code=status.HTTP_204_NO_CONTENT)
+def delete_all_notifications(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> None:
+    notification_service.delete_all_for_user(db, current_user.id)
+
+
 @router.post("/{notification_id}/read", response_model=NotificationResponse)
 def mark_notification_read(
     notification_id: uuid.UUID,

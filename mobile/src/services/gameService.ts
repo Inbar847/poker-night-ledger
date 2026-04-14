@@ -5,10 +5,27 @@
 
 import { apiClient } from "@/lib/apiClient";
 import type {
+  CloseGameResult,
   CreateGameRequest,
   Game,
   Participant,
+  ShortagePreview,
+  ShortageResolutionRequired,
+  ShortageStrategy,
 } from "@/types/game";
+
+/**
+ * Type guard: returns true when the close endpoint responded with a
+ * "shortage resolution required" payload rather than a closed GameResponse.
+ */
+export function isShortageResolutionRequired(
+  result: CloseGameResult,
+): result is ShortageResolutionRequired {
+  return (
+    "requires_shortage_resolution" in result &&
+    result.requires_shortage_resolution === true
+  );
+}
 
 export async function listGames(): Promise<Game[]> {
   return apiClient.get<Game[]>("/games");
@@ -26,8 +43,27 @@ export async function startGame(gameId: string): Promise<Game> {
   return apiClient.post<Game>(`/games/${gameId}/start`);
 }
 
-export async function closeGame(gameId: string): Promise<Game> {
-  return apiClient.post<Game>(`/games/${gameId}/close`);
+/**
+ * Attempt to close a game.
+ *
+ * - No strategy supplied:
+ *   - No shortage → game closes, returns GameResponse (CloseGameResult narrows to Game).
+ *   - Shortage detected → returns ShortageResolutionRequired (HTTP 200, game NOT closed).
+ *     The caller should show the strategy modal and re-call with a strategy.
+ * - Strategy supplied: applies shortage distribution, closes game, returns GameResponse.
+ */
+export async function closeGame(
+  gameId: string,
+  shortageStrategy?: ShortageStrategy,
+): Promise<CloseGameResult> {
+  const body: { shortage_strategy?: ShortageStrategy } = {};
+  if (shortageStrategy) body.shortage_strategy = shortageStrategy;
+  return apiClient.post<CloseGameResult>(`/games/${gameId}/close`, body);
+}
+
+/** Check whether the current settlement has a shortage before closing. */
+export async function getShortagePreview(gameId: string): Promise<ShortagePreview> {
+  return apiClient.get<ShortagePreview>(`/games/${gameId}/shortage-preview`);
 }
 
 export async function getParticipants(gameId: string): Promise<Participant[]> {
@@ -51,6 +87,18 @@ export async function addGuest(
   guest_name: string,
 ): Promise<Participant> {
   return apiClient.post<Participant>(`/games/${gameId}/guests`, { guest_name });
+}
+
+/** Player cashes out early — enters their own final chip count. */
+export async function cashOut(
+  gameId: string,
+  chipsAmount: string,
+): Promise<{ participant_id: string; chips_amount: string; status: string }> {
+  return apiClient.post<{
+    participant_id: string;
+    chips_amount: string;
+    status: string;
+  }>(`/games/${gameId}/cashout`, { chips_amount: chipsAmount });
 }
 
 export async function inviteUser(

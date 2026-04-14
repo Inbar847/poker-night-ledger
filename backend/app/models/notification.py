@@ -17,6 +17,8 @@ class NotificationType(str, enum.Enum):
     game_invitation = "game_invitation"
     game_started = "game_started"
     game_closed = "game_closed"
+    settlement_owed = "settlement_owed"
+    game_resettled = "game_resettled"
 
 
 class Notification(Base):

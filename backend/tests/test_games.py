@@ -1,9 +1,6 @@
 """Tests for game creation, joining, and participant management."""
 
 from fastapi.testclient import TestClient
-from sqlalchemy.orm import Session
-
-from app.models.notification import Notification, NotificationType
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -244,124 +241,23 @@ def test_join_by_token_requires_auth(client: TestClient):
 
 
 # ---------------------------------------------------------------------------
-# Invite registered user
+# Invite registered user (deprecated — old endpoint returns 410 Gone)
+# The full invitation flow is now tested in test_game_invitations.py.
 # ---------------------------------------------------------------------------
 
 
-def test_invite_user_success(client: TestClient):
+def test_invite_user_deprecated_returns_410(client: TestClient):
+    """The old POST /games/{id}/invite-user endpoint is deprecated."""
     dealer_token = _register_and_login(client, "dealer@example.com")
     game_id = _create_game(client, dealer_token).json()["id"]
 
-    # Register the invitee and get their user id
-    client.post(
-        "/auth/register",
-        json={"email": "invitee@example.com", "password": "password123"},
-    )
-    login_resp = client.post(
-        "/auth/login", json={"email": "invitee@example.com", "password": "password123"}
-    )
-    invitee_token = login_resp.json()["access_token"]
-    invitee_id = client.get("/users/me", headers=_auth(invitee_token)).json()["id"]
-
-    resp = client.post(
-        f"/games/{game_id}/invite-user",
-        json={"user_id": invitee_id},
-        headers=_auth(dealer_token),
-    )
-    assert resp.status_code == 201
-    body = resp.json()
-    assert body["user_id"] == invitee_id
-    assert body["role_in_game"] == "player"
-
-
-def test_invite_user_dealer_only(client: TestClient):
-    dealer_token = _register_and_login(client, "dealer@example.com")
-    player_token = _register_and_login(client, "player@example.com")
-    stranger_token = _register_and_login(client, "stranger@example.com")
-    game = _create_game(client, dealer_token).json()
-
-    # player joins the game
-    client.post(
-        "/games/join-by-token",
-        json={"token": game["invite_token"]},
-        headers=_auth(player_token),
-    )
-    stranger_id = client.get("/users/me", headers=_auth(stranger_token)).json()["id"]
-
-    resp = client.post(
-        f"/games/{game['id']}/invite-user",
-        json={"user_id": stranger_id},
-        headers=_auth(player_token),
-    )
-    assert resp.status_code == 403
-
-
-def test_invite_user_not_found(client: TestClient):
-    dealer_token = _register_and_login(client, "dealer@example.com")
-    game_id = _create_game(client, dealer_token).json()["id"]
     resp = client.post(
         f"/games/{game_id}/invite-user",
         json={"user_id": "00000000-0000-0000-0000-000000000000"},
         headers=_auth(dealer_token),
     )
-    assert resp.status_code == 404
-
-
-def test_invite_user_already_in_game_returns_409(client: TestClient):
-    dealer_token = _register_and_login(client, "dealer@example.com")
-    player_token = _register_and_login(client, "player@example.com")
-    game = _create_game(client, dealer_token).json()
-    player_id = client.get("/users/me", headers=_auth(player_token)).json()["id"]
-
-    # Add the player once via token
-    client.post(
-        "/games/join-by-token",
-        json={"token": game["invite_token"]},
-        headers=_auth(player_token),
-    )
-    # Try to invite them again via dealer
-    resp = client.post(
-        f"/games/{game['id']}/invite-user",
-        json={"user_id": player_id},
-        headers=_auth(dealer_token),
-    )
-    assert resp.status_code == 409
-
-
-def test_invite_user_creates_game_invitation_notification(
-    client: TestClient, db_session: Session
-):
-    dealer_token = _register_and_login(client, "dealer@example.com")
-    game_id = _create_game(client, dealer_token).json()["id"]
-
-    client.post(
-        "/auth/register",
-        json={"email": "invitee@example.com", "password": "password123"},
-    )
-    login_resp = client.post(
-        "/auth/login", json={"email": "invitee@example.com", "password": "password123"}
-    )
-    invitee_token = login_resp.json()["access_token"]
-    invitee_id = client.get("/users/me", headers=_auth(invitee_token)).json()["id"]
-
-    resp = client.post(
-        f"/games/{game_id}/invite-user",
-        json={"user_id": invitee_id},
-        headers=_auth(dealer_token),
-    )
-    assert resp.status_code == 201
-
-    notification = (
-        db_session.query(Notification)
-        .filter(
-            Notification.type == NotificationType.game_invitation,
-        )
-        .first()
-    )
-    assert notification is not None
-    assert str(notification.user_id) == invitee_id
-    assert notification.data["game_id"] == game_id
-    assert notification.read is False
+    assert resp.status_code == 410
+    assert "deprecated" in resp.json()["detail"].lower()
 
 
 # ---------------------------------------------------------------------------

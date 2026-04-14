@@ -11,7 +11,9 @@ import { Redirect, Stack, useRouter } from "expo-router";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import LoadingScreen from "@/components/LoadingScreen";
+import InvitationPopup from "@/features/invitations/InvitationPopup";
 import { useUnreadCount } from "@/hooks/useNotifications";
+import { usePersonalSocket } from "@/hooks/usePersonalSocket";
 import { useAuthStore } from "@/store/authStore";
 
 function NotificationsBell() {
@@ -76,6 +78,11 @@ function HeaderRight() {
 export default function AppLayout() {
   const { isBootstrapped, accessToken } = useAuthStore();
 
+  // Personal WebSocket for user-level events (Stage 26).
+  // Must be called unconditionally (React hook rules); the hook handles
+  // the no-token case internally by skipping the connection.
+  usePersonalSocket();
+
   if (!isBootstrapped) {
     return <LoadingScreen />;
   }
@@ -85,15 +92,18 @@ export default function AppLayout() {
   }
 
   return (
-    <Stack
-      screenOptions={{
-        headerStyle: { backgroundColor: "#1a1a2e" },
-        headerTintColor: "#ffffff",
-        headerTitleStyle: { fontWeight: "bold" },
-        contentStyle: { backgroundColor: "#1a1a2e" },
-        headerRight: () => <HeaderRight />,
-      }}
-    />
+    <>
+      <Stack
+        screenOptions={{
+          headerStyle: { backgroundColor: "#1a1a2e" },
+          headerTintColor: "#ffffff",
+          headerTitleStyle: { fontWeight: "bold" },
+          contentStyle: { backgroundColor: "#1a1a2e" },
+          headerRight: () => <HeaderRight />,
+        }}
+      />
+      <InvitationPopup />
+    </>
   );
 }
 

@@ -8,6 +8,7 @@ export type GameStatus = "lobby" | "active" | "closed";
 export type ParticipantType = "registered" | "guest";
 export type RoleInGame = "dealer" | "player";
 export type BuyInType = "initial" | "rebuy" | "addon";
+export type ParticipantStatus = "active" | "left_early" | "removed_before_start";
 
 // ---------------------------------------------------------------------------
 // Game
@@ -26,6 +27,8 @@ export interface Game {
   created_at: string;
   updated_at: string;
   closed_at: string | null;
+  shortage_amount: string | null;
+  shortage_strategy: "proportional_winners" | "equal_all" | null;
 }
 
 export interface CreateGameRequest {
@@ -47,6 +50,7 @@ export interface Participant {
   display_name: string;
   participant_type: ParticipantType;
   role_in_game: RoleInGame;
+  status: ParticipantStatus;
   joined_at: string;
 }
 
@@ -136,6 +140,10 @@ export interface ParticipantBalance {
   owed_expense_share: string;
   expense_balance: string;
   net_balance: string | null;
+  /** Amount this participant absorbs from the shortage (0.00 when no shortage). */
+  shortage_share: string;
+  /** net_balance - shortage_share (null if no final stack). */
+  adjusted_net_balance: string | null;
 }
 
 export interface Transfer {
@@ -154,4 +162,71 @@ export interface Settlement {
   is_complete: boolean;
   balances: ParticipantBalance[];
   transfers: Transfer[];
+  shortage_amount: string;
+  shortage_strategy: "proportional_winners" | "equal_all" | null;
+}
+
+export type ShortageStrategy = "proportional_winners" | "equal_all";
+
+export interface ShortagePreview {
+  has_shortage: boolean;
+  shortage_amount: string;
+}
+
+/**
+ * Returned by POST /games/{id}/close when a shortage is detected but no
+ * strategy was provided. The game is NOT closed yet. The client should show
+ * the strategy selection modal and re-submit with shortage_strategy.
+ */
+export interface ShortageResolutionRequired {
+  requires_shortage_resolution: true;
+  shortage_amount: string;
+  available_strategies: string[];
+}
+
+/** Participant missing a final chip count (returned in close-game validation error). */
+export interface MissingFinalStack {
+  participant_id: string;
+  display_name: string;
+}
+
+/** Discriminated union returned by closeGame(). */
+export type CloseGameResult = Game | ShortageResolutionRequired;
+
+// ---------------------------------------------------------------------------
+// Game edits (retroactive editing of closed games)
+// ---------------------------------------------------------------------------
+
+export type GameEditType =
+  | "buyin_created"
+  | "buyin_updated"
+  | "buyin_deleted"
+  | "final_stack_updated";
+
+export interface GameEdit {
+  id: string;
+  game_id: string;
+  edited_by_user_id: string;
+  edited_by_display_name: string;
+  edit_type: GameEditType;
+  entity_id: string;
+  before_data: Record<string, string | number | null> | null;
+  after_data: Record<string, string | number | null> | null;
+  created_at: string;
+}
+
+export interface ClosedGameBuyInCreate {
+  participant_id: string;
+  cash_amount: string;
+  chips_amount: string;
+  buy_in_type?: string;
+}
+
+export interface ClosedGameBuyInUpdate {
+  cash_amount?: string;
+  chips_amount?: string;
+}
+
+export interface ClosedGameFinalStackUpdate {
+  chips_amount: string;
 }

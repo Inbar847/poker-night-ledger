@@ -105,8 +105,12 @@ def _create_and_close_game(
         headers=_auth(dealer_token),
     )
 
-    # Close
-    client.post(f"/games/{gid}/close", headers=_auth(dealer_token))
+    # Close (pass strategy so shortage-affected games don't get rejected)
+    client.post(
+        f"/games/{gid}/close",
+        json={"shortage_strategy": "equal_all"},
+        headers=_auth(dealer_token),
+    )
 
 
 # ---------------------------------------------------------------------------

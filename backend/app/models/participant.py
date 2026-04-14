@@ -19,6 +19,12 @@ class RoleInGame(str, enum.Enum):
     player = "player"
 
 
+class ParticipantStatus(str, enum.Enum):
+    active = "active"
+    left_early = "left_early"
+    removed_before_start = "removed_before_start"
+
+
 class Participant(Base):
     __tablename__ = "participants"
 
@@ -37,6 +43,12 @@ class Participant(Base):
     role_in_game: Mapped[RoleInGame] = mapped_column(
         SAEnum(RoleInGame, native_enum=False, length=10),
         nullable=False,
+    )
+    status: Mapped[ParticipantStatus] = mapped_column(
+        SAEnum(ParticipantStatus, native_enum=False, length=25),
+        nullable=False,
+        default=ParticipantStatus.active,
+        server_default="active",
     )
     joined_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

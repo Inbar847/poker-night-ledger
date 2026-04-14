@@ -11,15 +11,23 @@ from app.models.user import User
 from app.realtime import events as rt_events
 from app.realtime.manager import manager
 from app.models.notification import NotificationType
-from app.schemas.game import GameCreate, GameResponse, InviteLinkResponse
+from app.schemas.game import (
+    CashoutRequest,
+    CashoutResponse,
+    CloseGameRequest,
+    GameCreate,
+    GameResponse,
+    InviteLinkResponse,
+    ShortagePreviewResponse,
+    ShortageResolutionRequired,
+)
+from app.schemas.ledger import FinalStackResponse
 from app.schemas.participant import (
     AddGuestRequest,
-    InviteUserRequest,
     JoinByTokenRequest,
     ParticipantResponse,
 )
-from app.services import game_service, notification_service, participant_service
-from app.services.user_service import get_user_by_id
+from app.services import early_cashout_service, game_lifecycle_service, game_service, notification_service, participant_service
 
 router = APIRouter(prefix="/games", tags=["games"])
 
@@ -50,6 +58,7 @@ def _build_participant_response(
         "display_name": _display_name(participant, user),
         "participant_type": participant.participant_type,
         "role_in_game": participant.role_in_game,
+        "status": participant.status,
         "joined_at": participant.joined_at,
     })
 
@@ -159,41 +168,21 @@ async def join_by_token(
     return response_obj
 
 
-@router.post("/{game_id}/invite-user", response_model=ParticipantResponse, status_code=status.HTTP_201_CREATED)
-async def invite_user(
+@router.post("/{game_id}/invite-user", status_code=status.HTTP_410_GONE)
+def invite_user(
     game_id: uuid.UUID,
-    body: InviteUserRequest,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
-) -> ParticipantResponse:
-    game = _get_game_or_404(db, game_id)
-    participant = _get_participant_or_403(db, game_id, current_user.id)
-    _require_dealer(participant)
+) -> dict:
+    """Deprecated — use POST /games/{game_id}/invitations instead.
 
-    invitee = get_user_by_id(db, body.user_id)
-    if invitee is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found",
-        )
-    existing = participant_service.get_participant_for_user(db, game_id, body.user_id)
-    if existing is not None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="User is already a participant in this game",
-        )
-    result = participant_service.invite_user(db, game, invitee)
-    response_obj = _build_participant_response(result, invitee)
-    # Notify the invited user that they have been added to a game
-    notification_service.create_notification(
-        db,
-        user_id=invitee.id,
-        notification_type=NotificationType.game_invitation,
-        data={"game_id": str(game_id), "invited_by_user_id": str(current_user.id)},
+    The old immediate-add flow has been replaced by a pending invitation model
+    where the invited user must accept before joining as a participant.
+    """
+    raise HTTPException(
+        status_code=status.HTTP_410_GONE,
+        detail="This endpoint is deprecated. Use POST /games/{game_id}/invitations instead.",
     )
-    db.commit()
-    await manager.broadcast(game_id, rt_events.participant_joined(game_id, response_obj.model_dump(mode="json")))
-    return response_obj
 
 
 @router.post("/{game_id}/guests", response_model=ParticipantResponse, status_code=status.HTTP_201_CREATED)
@@ -240,34 +229,121 @@ async def start_game(
     return result
 
 
-@router.post("/{game_id}/close", response_model=GameResponse)
-async def close_game(
+@router.get("/{game_id}/shortage-preview", response_model=ShortagePreviewResponse)
+def shortage_preview(
     game_id: uuid.UUID,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
-) -> GameResponse:
+) -> ShortagePreviewResponse:
+    """
+    Compute whether the current settlement has a shortage without closing the game.
+
+    Used by the mobile dealer UI to decide whether to show the shortage-strategy
+    modal before calling POST /games/{id}/close.
+
+    Only available while the game is active (before closing).
+    """
     game = _get_game_or_404(db, game_id)
     participant = _get_participant_or_403(db, game_id, current_user.id)
     _require_dealer(participant)
+
+    if game.status != GameStatus.active:
+        raise HTTPException(
+            status_code=400,
+            detail="Shortage preview is only available for active games",
+        )
+
+    from app.services.settlement_service import _build_calcs, compute_shortage_amount  # noqa: PLC0415
+    calcs = _build_calcs(db, game)
+    shortage = compute_shortage_amount(calcs)
+    return ShortagePreviewResponse(
+        has_shortage=shortage > 0,
+        shortage_amount=shortage,
+    )
+
+
+@router.post("/{game_id}/close")
+async def close_game(
+    game_id: uuid.UUID,
+    body: CloseGameRequest | None = None,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> GameResponse | ShortageResolutionRequired:
+    """
+    Close an active game and finalise settlement.
+
+    Two-phase flow when a shortage is detected:
+    - Phase 1 (no strategy): if shortage exists, returns HTTP 200 with
+      ShortageResolutionRequired so the client can show the selection modal.
+      The game is NOT closed yet.
+    - Phase 2 (strategy provided): applies the selected strategy, persists
+      shortage_amount + shortage_strategy, closes the game, returns GameResponse.
+
+    When there is no shortage, the game closes immediately on the first call.
+
+    shortage_strategy values: "proportional_winners" | "equal_all"
+    """
+    game = _get_game_or_404(db, game_id)
+    participant = _get_participant_or_403(db, game_id, current_user.id)
+    _require_dealer(participant)
+
+    strategy = body.shortage_strategy if body else None
+
     try:
-        result = game_service.close_game(db, game)
-    except ValueError as exc:
+        result = game_lifecycle_service.close_and_finalize(db, game, strategy)
+    except game_lifecycle_service.MissingFinalStacksError:
+        raise  # handled by app-level exception handler in main.py
+    except game_lifecycle_service.GameNotActiveError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    # Notify all registered participants that the game has closed
-    participants = participant_service.get_participants(db, game_id)
-    for p in participants:
-        if p.user_id is not None:
-            notification_service.create_notification(
-                db,
-                user_id=p.user_id,
-                notification_type=NotificationType.game_closed,
-                data={"game_id": str(game_id)},
-            )
+
+    if result.shortage_resolution_required is not None:
+        return result.shortage_resolution_required
+
     db.commit()
-    # Broadcast both close and settlement-ready signals
     await manager.broadcast(game_id, rt_events.game_closed(game_id))
     await manager.broadcast(game_id, rt_events.settlement_updated(game_id))
-    return result
+    return result.game_response
+
+
+@router.post("/{game_id}/cashout", response_model=CashoutResponse)
+async def cashout(
+    game_id: uuid.UUID,
+    body: CashoutRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> CashoutResponse:
+    """Player cashes out early — enters their own final chip count.
+
+    Only the player themselves can call this. The dealer can review/edit
+    the value afterwards via PUT /games/{id}/final-stacks/{pid}.
+    """
+    game = _get_game_or_404(db, game_id)
+    participant = _get_participant_or_403(db, game_id, current_user.id)
+
+    try:
+        final_stack = early_cashout_service.cashout(
+            db, game, participant, body.chips_amount, current_user.id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+    # Broadcast events
+    stack_data = FinalStackResponse.model_validate(final_stack).model_dump(mode="json")
+    await manager.broadcast(game_id, rt_events.final_stack_updated(game_id, stack_data))
+
+    user = db.get(User, current_user.id)
+    await manager.broadcast(
+        game_id,
+        rt_events.participant_status_changed(
+            game_id, participant.id, participant.status.value, _display_name(participant, user),
+        ),
+    )
+
+    return CashoutResponse(
+        participant_id=participant.id,
+        chips_amount=final_stack.chips_amount,
+        status=participant.status.value,
+    )
 
 
 @router.get("/{game_id}/participants", response_model=list[ParticipantResponse])

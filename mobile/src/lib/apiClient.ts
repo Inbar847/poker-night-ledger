@@ -25,6 +25,7 @@ class ApiError extends Error {
   constructor(
     public readonly status: number,
     message: string,
+    public readonly data?: Record<string, unknown>,
   ) {
     super(message);
     this.name = "ApiError";
@@ -75,13 +76,15 @@ async function request<T>(
 
   if (!res.ok) {
     let detail = "Request failed";
+    let bodyData: Record<string, unknown> | undefined;
     try {
       const body = await res.json();
+      bodyData = body;
       if (typeof body?.detail === "string") detail = body.detail;
     } catch {
       // ignore parse errors
     }
-    throw new ApiError(res.status, detail);
+    throw new ApiError(res.status, detail, bodyData);
   }
 
   // 204 No Content

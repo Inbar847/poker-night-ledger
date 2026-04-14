@@ -1,8 +1,9 @@
 /**
- * Expense entry screen — dealer only.
+ * Expense entry screen — any active participant.
  *
  * Fields: title, total_amount, paid_by participant, split_among participants.
- * The dealer selects which participants share the expense (defaults to all).
+ * Non-dealers are locked to themselves as payer (backend enforces this).
+ * The dealer can select any participant as payer.
  * Splits are computed as equal shares among selected participants only.
  * The remainder (from integer division) goes to the first selected participant,
  * ensuring the split sum equals total_amount exactly.
@@ -31,6 +32,7 @@ import { z } from "zod";
 import { queryKeys } from "@/lib/queryKeys";
 import * as gameService from "@/services/gameService";
 import * as ledgerService from "@/services/ledgerService";
+import { useAuthStore } from "@/store/authStore";
 import type { Participant } from "@/types/game";
 
 const schema = z.object({
@@ -70,9 +72,17 @@ export default function ExpenseScreen() {
   const router = useRouter();
   const queryClient = useQueryClient();
 
+  const userId = useAuthStore((s) => s.userId) ?? "";
+
   const [paidBy, setPaidBy] = useState<string | null>(null);
   // IDs of participants included in the split. Initialised to all once loaded.
   const [splitIds, setSplitIds] = useState<Set<string>>(new Set());
+
+  const { data: game } = useQuery({
+    queryKey: queryKeys.game(id),
+    queryFn: () => gameService.getGame(id),
+    enabled: !!id,
+  });
 
   const { data: participants = [], isLoading: participantsLoading } = useQuery({
     queryKey: queryKeys.participants(id),
@@ -80,12 +90,19 @@ export default function ExpenseScreen() {
     enabled: !!id,
   });
 
+  const isDealer = !!(game && userId && game.dealer_user_id === userId);
+  const myParticipant = participants.find((p) => p.user_id === userId);
+
   // Default: include everyone in the split once participants are loaded.
+  // For non-dealers, auto-set paidBy to self.
   useEffect(() => {
     if (participants.length > 0 && splitIds.size === 0) {
       setSplitIds(new Set(participants.map((p) => p.id)));
     }
-  }, [participants]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (!isDealer && myParticipant && !paidBy) {
+      setPaidBy(myParticipant.id);
+    }
+  }, [participants, isDealer, myParticipant]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function toggleSplitId(participantId: string) {
     setSplitIds((prev) => {
@@ -198,7 +215,7 @@ export default function ExpenseScreen() {
           <Text style={styles.label}>Paid by *</Text>
           {participantsLoading ? (
             <ActivityIndicator color="#e94560" />
-          ) : (
+          ) : isDealer ? (
             <View style={styles.chipRow}>
               {participants.map((p) => (
                 <Pressable
@@ -219,6 +236,14 @@ export default function ExpenseScreen() {
                   </Text>
                 </Pressable>
               ))}
+            </View>
+          ) : (
+            <View style={styles.chipRow}>
+              <View style={[styles.chip, styles.chipSelected]}>
+                <Text style={[styles.chipText, styles.chipTextSelected]}>
+                  {myParticipant?.display_name ?? "You"}
+                </Text>
+              </View>
             </View>
           )}
 

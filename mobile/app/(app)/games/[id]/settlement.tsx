@@ -8,7 +8,7 @@
  */
 
 import { useQuery } from "@tanstack/react-query";
-import { Stack, useLocalSearchParams } from "expo-router";
+import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import {
   ActivityIndicator,
   Pressable,
@@ -19,7 +19,10 @@ import {
 } from "react-native";
 
 import { queryKeys } from "@/lib/queryKeys";
+import * as gameService from "@/services/gameService";
 import * as settlementService from "@/services/settlementService";
+import * as userService from "@/services/userService";
+import { useAuthStore } from "@/store/authStore";
 import type { ParticipantBalance, Transfer } from "@/types/game";
 
 function fmt(v: string | null | undefined, fallback = "—"): string {
@@ -34,21 +37,23 @@ function fmtAbs(v: string | null | undefined): string {
 }
 
 function BalanceCard({ balance, currency }: { balance: ParticipantBalance; currency: string }) {
+  // Show adjusted_net_balance as the headline (equals net_balance when no shortage)
+  const displayNet = balance.adjusted_net_balance ?? balance.net_balance;
   const netColor =
-    balance.net_balance == null
+    displayNet == null
       ? "#888"
-      : parseFloat(balance.net_balance) >= 0
+      : parseFloat(displayNet) >= 0
         ? "#2ecc71"
         : "#e94560";
+  const hasShortageShare =
+    balance.shortage_share != null && parseFloat(balance.shortage_share) > 0;
 
   return (
     <View style={styles.card}>
       <View style={styles.cardHeaderRow}>
         <Text style={styles.cardName}>{balance.display_name}</Text>
         <Text style={[styles.netBalance, { color: netColor }]}>
-          {balance.net_balance != null
-            ? `${fmt(balance.net_balance)} ${currency}`
-            : "—"}
+          {displayNet != null ? `${fmt(displayNet)} ${currency}` : "—"}
         </Text>
       </View>
 
@@ -72,6 +77,13 @@ function BalanceCard({ balance, currency }: { balance: ParticipantBalance; curre
             label="Expense balance"
             value={`${fmt(balance.expense_balance)} ${currency}`}
             color={parseFloat(balance.expense_balance) >= 0 ? "#2ecc71" : "#f0a500"}
+          />
+        ) : null}
+        {hasShortageShare ? (
+          <Row
+            label="Shortage absorbed"
+            value={`−${fmtAbs(balance.shortage_share)} ${currency}`}
+            color="#f0a500"
           />
         ) : null}
       </View>
@@ -111,6 +123,8 @@ function TransferRow({ transfer, currency }: { transfer: Transfer; currency: str
 
 export default function SettlementScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const router = useRouter();
+  const userId = useAuthStore((s) => s.userId) ?? "";
 
   const {
     data: settlement,
@@ -122,6 +136,20 @@ export default function SettlementScreen() {
     queryFn: () => settlementService.getSettlement(id),
     enabled: !!id,
   });
+
+  const { data: game } = useQuery({
+    queryKey: queryKeys.game(id),
+    queryFn: () => gameService.getGame(id),
+    enabled: !!id,
+  });
+
+  const { data: me } = useQuery({
+    queryKey: queryKeys.me(userId),
+    queryFn: userService.getMe,
+  });
+
+  const isDealer = !!(me && game && me.id === game.dealer_user_id);
+  const isClosed = game?.status === "closed";
 
   if (isLoading) {
     return (
@@ -174,6 +202,21 @@ export default function SettlementScreen() {
           </View>
         ) : null}
 
+        {/* Shortage banner */}
+        {parseFloat(settlement.shortage_amount) > 0 ? (
+          <View style={styles.shortageBanner}>
+            <Text style={styles.shortageTitle}>
+              Shortage: {currency} {parseFloat(settlement.shortage_amount).toFixed(2)} absorbed
+            </Text>
+            <Text style={styles.shortageDesc}>
+              Strategy:{" "}
+              {settlement.shortage_strategy === "proportional_winners"
+                ? "Proportional (winners only)"
+                : "Equal split (all participants)"}
+            </Text>
+          </View>
+        ) : null}
+
         {/* Balances */}
         <Text style={styles.sectionTitle}>Balances</Text>
         {settlement.balances.map((b) => (
@@ -194,6 +237,34 @@ export default function SettlementScreen() {
               ))
             )}
           </>
+        ) : null}
+
+        {/* Edit actions (closed game) */}
+        {isClosed ? (
+          <View style={{ marginTop: 24, gap: 8 }}>
+            {isDealer ? (
+              <>
+                <Pressable
+                  style={[styles.btn, { backgroundColor: "#2a2a5a" }]}
+                  onPress={() => router.push(`/games/${id}/edit-buyins`)}
+                >
+                  <Text style={{ color: "#ccc", fontSize: 14 }}>Edit Buy-Ins</Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.btn, { backgroundColor: "#2a2a5a" }]}
+                  onPress={() => router.push(`/games/${id}/edit-final-stacks`)}
+                >
+                  <Text style={{ color: "#ccc", fontSize: 14 }}>Edit Final Stacks</Text>
+                </Pressable>
+              </>
+            ) : null}
+            <Pressable
+              style={[styles.btn, { backgroundColor: "#2a2a5a" }]}
+              onPress={() => router.push(`/games/${id}/edit-history`)}
+            >
+              <Text style={{ color: "#ccc", fontSize: 14 }}>View Edit History</Text>
+            </Pressable>
+          </View>
         ) : null}
       </ScrollView>
     </>
@@ -271,4 +342,14 @@ const styles = StyleSheet.create({
   transferTo: { color: "#2ecc71", fontSize: 14, fontWeight: "600", flex: 1 },
   transferAmount: { color: "#fff", fontSize: 15, fontWeight: "700" },
   emptyText: { color: "#555", fontSize: 13 },
+  shortageBanner: {
+    backgroundColor: "#1a1000",
+    borderLeftWidth: 3,
+    borderLeftColor: "#f0a500",
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 16,
+  },
+  shortageTitle: { color: "#f0a500", fontSize: 13, fontWeight: "700", marginBottom: 2 },
+  shortageDesc: { color: "#a07030", fontSize: 12 },
 });

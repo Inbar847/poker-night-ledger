@@ -6,6 +6,11 @@ test suite. StaticPool ensures all SQLAlchemy sessions share the same
 underlying connection, which is required for in-memory SQLite.
 """
 
+import os
+
+# Set required env vars before any app module is imported.
+os.environ.setdefault("SECRET_KEY", "test-secret-key-not-for-production")
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, event

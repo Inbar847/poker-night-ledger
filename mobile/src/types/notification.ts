@@ -3,7 +3,9 @@ export type NotificationType =
   | "friend_request_accepted"
   | "game_invitation"
   | "game_started"
-  | "game_closed";
+  | "game_closed"
+  | "settlement_owed"
+  | "game_resettled";
 
 export interface AppNotification {
   id: string;

@@ -1,5 +1,6 @@
 """
 Settlement response schemas for Stage 4.
+Shortage resolution fields added post-Phase-2.
 
 Two response shapes:
 - SettlementResponse: summary view (balances + transfers)
@@ -54,6 +55,12 @@ class ParticipantBalance(BaseModel):
     # Combined (None if final stack is missing)
     net_balance: Decimal | None
 
+    # Shortage resolution (0.00 when no shortage or no final stack)
+    shortage_share: Decimal = Decimal("0")
+    # adjusted_net_balance = net_balance - shortage_share
+    # (None when net_balance is None)
+    adjusted_net_balance: Decimal | None = None
+
 
 class SettlementResponse(BaseModel):
     game_id: uuid.UUID
@@ -65,6 +72,9 @@ class SettlementResponse(BaseModel):
     balances: list[ParticipantBalance]
     # Empty list when is_complete is False
     transfers: list[Transfer]
+    # Shortage fields (0 / None when no shortage)
+    shortage_amount: Decimal = Decimal("0")
+    shortage_strategy: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -111,3 +121,6 @@ class SettlementAuditResponse(BaseModel):
     net_balance_sum: Decimal | None
     participants: list[ParticipantAudit]
     transfers: list[Transfer]
+    # Shortage fields (0 / None when no shortage)
+    shortage_amount: Decimal = Decimal("0")
+    shortage_strategy: str | None = None

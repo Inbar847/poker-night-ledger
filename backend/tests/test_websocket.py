@@ -25,6 +25,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.realtime.manager import ConnectionManager
+from app.realtime.personal_manager import PersonalConnectionManager
 
 
 # ---------------------------------------------------------------------------
@@ -305,11 +306,16 @@ class TestMutationsAfterAsyncConversion:
         assert r.status_code == 200
         assert r.json()["status"] == "active"
 
+        parts = client.get(f"/games/{game_id}/participants", headers=_auth(token)).json()
+        for p in parts:
+            client.put(f"/games/{game_id}/final-stacks/{p['id']}", json={"chips_amount": 0.0}, headers=_auth(token))
+
         r = client.post(f"/games/{game_id}/close", headers=_auth(token))
         assert r.status_code == 200
         assert r.json()["status"] == "closed"
 
     def test_invite_user_broadcasts(self, client: TestClient):
+        """Invitation rework: dealer invites a friend, friend accepts, becomes participant."""
         dealer_token = _register_and_login(client, "ws_inv_dealer@example.com")
         player_token = _register_and_login(client, "ws_inv_player@example.com")
 
@@ -317,16 +323,37 @@ class TestMutationsAfterAsyncConversion:
         r = client.get("/users/me", headers=_auth(player_token))
         player_id = r.json()["id"]
 
-        game = _create_and_start_game(client, dealer_token)
-        game_id = game["id"]
-
+        # Make them friends first (required for new invitation flow)
         r = client.post(
-            f"/games/{game_id}/invite-user",
-            json={"user_id": player_id},
+            "/friends/request",
+            json={"addressee_user_id": player_id},
             headers=_auth(dealer_token),
         )
         assert r.status_code == 201
-        assert r.json()["participant_type"] == "registered"
+        fid = r.json()["id"]
+        r = client.post(f"/friends/{fid}/accept", headers=_auth(player_token))
+        assert r.status_code == 200
+
+        game = _create_and_start_game(client, dealer_token)
+        game_id = game["id"]
+
+        # Create invitation (pending)
+        r = client.post(
+            f"/games/{game_id}/invitations",
+            json={"invited_user_id": player_id},
+            headers=_auth(dealer_token),
+        )
+        assert r.status_code == 201
+        inv_id = r.json()["id"]
+        assert r.json()["status"] == "pending"
+
+        # Player accepts → becomes participant
+        r = client.post(
+            f"/games/{game_id}/invitations/{inv_id}/accept",
+            headers=_auth(player_token),
+        )
+        assert r.status_code == 200
+        assert r.json()["status"] == "accepted"
 
     def test_add_guest_broadcasts(self, client: TestClient):
         token = _register_and_login(client, "ws_guest@example.com")
@@ -340,3 +367,173 @@ class TestMutationsAfterAsyncConversion:
         )
         assert r.status_code == 201
         assert r.json()["guest_name"] == "Alice Guest"
+
+
+# ---------------------------------------------------------------------------
+# Unit tests — PersonalConnectionManager (Stage 26)
+# ---------------------------------------------------------------------------
+
+
+class TestPersonalConnectionManager:
+    def test_connect_and_count(self):
+        mgr = PersonalConnectionManager()
+        user_id = uuid.uuid4()
+        ws = object()
+        mgr.connect(user_id, ws)  # type: ignore[arg-type]
+        assert mgr.connection_count(user_id) == 1
+
+    def test_disconnect_decrements(self):
+        mgr = PersonalConnectionManager()
+        user_id = uuid.uuid4()
+        ws = object()
+        mgr.connect(user_id, ws)  # type: ignore[arg-type]
+        mgr.disconnect(user_id, ws)  # type: ignore[arg-type]
+        assert mgr.connection_count(user_id) == 0
+
+    def test_disconnect_cleans_empty_entry(self):
+        mgr = PersonalConnectionManager()
+        user_id = uuid.uuid4()
+        ws = object()
+        mgr.connect(user_id, ws)  # type: ignore[arg-type]
+        mgr.disconnect(user_id, ws)  # type: ignore[arg-type]
+        assert str(user_id) not in mgr._connections
+
+    def test_count_unknown_user(self):
+        mgr = PersonalConnectionManager()
+        assert mgr.connection_count(uuid.uuid4()) == 0
+
+    def test_multiple_connections_same_user(self):
+        mgr = PersonalConnectionManager()
+        user_id = uuid.uuid4()
+        ws1, ws2 = object(), object()
+        mgr.connect(user_id, ws1)  # type: ignore[arg-type]
+        mgr.connect(user_id, ws2)  # type: ignore[arg-type]
+        assert mgr.connection_count(user_id) == 2
+
+    def test_send_to_user_no_connections_is_noop(self):
+        mgr = PersonalConnectionManager()
+        user_id = uuid.uuid4()
+        event = {"type": "test", "payload": {}}
+        asyncio.run(mgr.send_to_user(user_id, event))
+
+    def test_send_to_user_delivers_message(self):
+        mgr = PersonalConnectionManager()
+        user_id = uuid.uuid4()
+
+        sent_messages: list[str] = []
+
+        class FakeWS:
+            async def send_text(self, message: str) -> None:
+                sent_messages.append(message)
+
+        ws = FakeWS()
+        mgr.connect(user_id, ws)  # type: ignore[arg-type]
+        event = {"type": "user.game_invitation", "payload": {"game_id": "abc"}}
+        asyncio.run(mgr.send_to_user(user_id, event))
+
+        assert len(sent_messages) == 1
+        parsed = json.loads(sent_messages[0])
+        assert parsed["type"] == "user.game_invitation"
+
+    def test_send_to_user_removes_dead_connections(self):
+        mgr = PersonalConnectionManager()
+        user_id = uuid.uuid4()
+
+        class DeadWS:
+            async def send_text(self, _message: str) -> None:
+                raise RuntimeError("disconnected")
+
+        ws = DeadWS()
+        mgr.connect(user_id, ws)  # type: ignore[arg-type]
+        assert mgr.connection_count(user_id) == 1
+
+        event = {"type": "test", "payload": {}}
+        asyncio.run(mgr.send_to_user(user_id, event))
+
+        assert mgr.connection_count(user_id) == 0
+
+
+# ---------------------------------------------------------------------------
+# Integration tests — Personal WebSocket auth (Stage 26)
+# ---------------------------------------------------------------------------
+
+
+class TestPersonalWebSocketAuth:
+    def test_invalid_token_rejected(self, client: TestClient):
+        with client.websocket_connect("/ws/user?token=not.a.jwt") as ws:
+            msg = ws.receive_json()
+            assert msg["error"] == "invalid_token"
+            assert msg["code"] == 4001
+
+    def test_refresh_token_rejected(self, client: TestClient):
+        client.post(
+            "/auth/register",
+            json={"email": "pws_refresh@example.com", "password": "pw12345678", "full_name": "R"},
+        )
+        r = client.post(
+            "/auth/login",
+            json={"email": "pws_refresh@example.com", "password": "pw12345678"},
+        )
+        refresh_token = r.json()["refresh_token"]
+
+        with client.websocket_connect(f"/ws/user?token={refresh_token}") as ws:
+            msg = ws.receive_json()
+            assert msg["error"] == "invalid_token"
+            assert msg["code"] == 4001
+
+    def test_valid_user_connects(self, client: TestClient):
+        token = _register_and_login(client, "pws_valid@example.com")
+        with client.websocket_connect(f"/ws/user?token={token}") as ws:
+            ws.send_text("ping")
+            # If we get here without exception, the connection was accepted
+
+
+# ---------------------------------------------------------------------------
+# Integration tests — Invitation creates personal WS event (Stage 26)
+# ---------------------------------------------------------------------------
+
+
+class TestInvitationPersonalBroadcast:
+    def test_create_invitation_sends_personal_event(self, client: TestClient):
+        """Creating an invitation should call personal_manager.send_to_user."""
+        dealer_token = _register_and_login(client, "pws_dealer@example.com")
+        player_token = _register_and_login(client, "pws_player@example.com")
+
+        r = client.get("/users/me", headers=_auth(player_token))
+        player_id = r.json()["id"]
+
+        # Make friends
+        r = client.post(
+            "/friends/request",
+            json={"addressee_user_id": player_id},
+            headers=_auth(dealer_token),
+        )
+        assert r.status_code == 201
+        fid = r.json()["id"]
+        r = client.post(f"/friends/{fid}/accept", headers=_auth(player_token))
+        assert r.status_code == 200
+
+        game = _create_and_start_game(client, dealer_token)
+        game_id = game["id"]
+
+        # Patch personal_manager.send_to_user to verify the call
+        with patch(
+            "app.api.routers.game_invitations.personal_manager.send_to_user",
+            new_callable=AsyncMock,
+        ) as mock_send:
+            r = client.post(
+                f"/games/{game_id}/invitations",
+                json={"invited_user_id": player_id},
+                headers=_auth(dealer_token),
+            )
+            assert r.status_code == 201
+
+            mock_send.assert_called_once()
+            call_args = mock_send.call_args
+            # First arg is user_id (the invited player)
+            assert str(call_args[0][0]) == player_id
+            # Second arg is the event dict
+            event = call_args[0][1]
+            assert event["type"] == "user.game_invitation"
+            assert event["payload"]["game_id"] == game_id
+            assert event["payload"]["invitation_id"] == r.json()["id"]

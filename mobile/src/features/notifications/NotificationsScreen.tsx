@@ -14,6 +14,7 @@
  */
 
 import { useRouter } from "expo-router";
+import { useCallback } from "react";
 import {
   ActivityIndicator,
   FlatList,
@@ -23,9 +24,11 @@ import {
   Text,
   View,
 } from "react-native";
+import { useFocusEffect } from "@react-navigation/native";
 
 import NotificationItem from "@/features/notifications/NotificationItem";
 import {
+  useDeleteAllNotifications,
   useMarkAllRead,
   useMarkNotificationRead,
   useNotifications,
@@ -40,8 +43,21 @@ export default function NotificationsScreen() {
   const { data: unreadData } = useUnreadCount();
   const markRead = useMarkNotificationRead();
   const markAll = useMarkAllRead();
+  const deleteAll = useDeleteAllNotifications();
 
   const unreadCount = unreadData?.count ?? 0;
+
+  // Auto-mark all as read when the screen gains focus.
+  // New notifications arriving while on this screen are NOT auto-read.
+  useFocusEffect(
+    useCallback(() => {
+      if (unreadCount > 0) {
+        markAll.mutate();
+      }
+      // Only fire on focus, not on every unreadCount change
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []),
+  );
 
   function handlePress(notification: AppNotification) {
     // Mark as read (fire-and-forget — don't block navigation)
@@ -53,6 +69,13 @@ export default function NotificationsScreen() {
     const gameId = notification.data?.game_id;
 
     if (
+      notification.type === "settlement_owed" ||
+      notification.type === "game_resettled"
+    ) {
+      if (gameId) {
+        router.push(`/games/${gameId}/settlement` as never);
+      }
+    } else if (
       notification.type === "game_invitation" ||
       notification.type === "game_started" ||
       notification.type === "game_closed"
@@ -78,24 +101,40 @@ export default function NotificationsScreen() {
 
   return (
     <View style={styles.flex}>
-      {/* Mark all as read */}
-      {unreadCount > 0 && (
+      {/* Actions row */}
+      {(unreadCount > 0 || notifications.length > 0) && (
         <View style={styles.markAllRow}>
           <Text style={styles.unreadLabel}>
-            {unreadCount} unread
+            {unreadCount > 0 ? `${unreadCount} unread` : `${notifications.length} notifications`}
           </Text>
-          <Pressable
-            onPress={() => markAll.mutate()}
-            disabled={markAll.isPending}
-            style={({ pressed }) => [
-              styles.markAllBtn,
-              pressed && styles.markAllBtnPressed,
-            ]}
-          >
-            <Text style={styles.markAllText}>
-              {markAll.isPending ? "Marking…" : "Mark all as read"}
-            </Text>
-          </Pressable>
+          <View style={styles.actionButtons}>
+            {unreadCount > 0 && (
+              <Pressable
+                onPress={() => markAll.mutate()}
+                disabled={markAll.isPending}
+                style={({ pressed }) => [
+                  styles.markAllBtn,
+                  pressed && styles.markAllBtnPressed,
+                ]}
+              >
+                <Text style={styles.markAllText}>
+                  {markAll.isPending ? "Marking…" : "Mark all as read"}
+                </Text>
+              </Pressable>
+            )}
+            <Pressable
+              onPress={() => deleteAll.mutate()}
+              disabled={deleteAll.isPending}
+              style={({ pressed }) => [
+                styles.deleteAllBtn,
+                pressed && styles.markAllBtnPressed,
+              ]}
+            >
+              <Text style={styles.deleteAllText}>
+                {deleteAll.isPending ? "Deleting…" : "Delete All"}
+              </Text>
+            </Pressable>
+          </View>
         </View>
       )}
 
@@ -143,6 +182,10 @@ const styles = StyleSheet.create({
     color: "#888",
     fontSize: 13,
   },
+  actionButtons: {
+    flexDirection: "row",
+    gap: 8,
+  },
   markAllBtn: {
     paddingVertical: 6,
     paddingHorizontal: 12,
@@ -154,6 +197,16 @@ const styles = StyleSheet.create({
   },
   markAllText: {
     color: "#ccc",
+    fontSize: 13,
+  },
+  deleteAllBtn: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 6,
+    backgroundColor: "#5a1a1a",
+  },
+  deleteAllText: {
+    color: "#e94560",
     fontSize: 13,
   },
   emptyState: {

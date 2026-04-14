@@ -275,6 +275,81 @@ def test_mark_all_read_returns_zero_when_none_unread(client: TestClient):
 
 
 # ---------------------------------------------------------------------------
+# Delete all notifications
+# ---------------------------------------------------------------------------
+
+
+def test_delete_all_notifications(client: TestClient):
+    """DELETE /notifications permanently removes all notification rows."""
+    token_a = _register_and_login(client, "userA@example.com")
+    token_b = _register_and_login(client, "userB@example.com")
+
+    me_b = client.get("/users/me", headers=_auth(token_b)).json()
+
+    # A sends friend request to B → B gets a friend_request_received notification.
+    client.post(
+        "/friends/request",
+        json={"addressee_user_id": me_b["id"]},
+        headers=_auth(token_a),
+    )
+
+    notifs_b = client.get("/notifications", headers=_auth(token_b)).json()
+    assert len(notifs_b) >= 1
+
+    # Delete all for B
+    resp = client.delete("/notifications", headers=_auth(token_b))
+    assert resp.status_code == 204
+
+    # B sees empty list now
+    notifs_b = client.get("/notifications", headers=_auth(token_b)).json()
+    assert notifs_b == []
+
+    # Unread count is 0
+    count = client.get("/notifications/unread-count", headers=_auth(token_b)).json()["count"]
+    assert count == 0
+
+
+def test_delete_all_notifications_is_no_op_when_empty(client: TestClient):
+    """DELETE /notifications on empty list returns 204."""
+    token = _register_and_login(client, "empty@example.com")
+    resp = client.delete("/notifications", headers=_auth(token))
+    assert resp.status_code == 204
+
+
+def test_delete_all_notifications_does_not_affect_other_users(client: TestClient):
+    """Deleting all notifications for one user does not affect another."""
+    token_a = _register_and_login(client, "keepA@example.com")
+    token_b = _register_and_login(client, "keepB@example.com")
+
+    me_b = client.get("/users/me", headers=_auth(token_b)).json()
+
+    # A sends friend request to B → B gets notification
+    friendship = client.post(
+        "/friends/request",
+        json={"addressee_user_id": me_b["id"]},
+        headers=_auth(token_a),
+    ).json()
+
+    # B accepts → A gets friend_request_accepted notification
+    client.post(f"/friends/{friendship['id']}/accept", headers=_auth(token_b))
+
+    notifs_a = client.get("/notifications", headers=_auth(token_a)).json()
+    assert len(notifs_a) >= 1
+
+    # Delete B's notifications
+    client.delete("/notifications", headers=_auth(token_b))
+
+    # A's notifications are untouched
+    notifs_a_after = client.get("/notifications", headers=_auth(token_a)).json()
+    assert len(notifs_a_after) == len(notifs_a)
+
+
+def test_delete_all_requires_auth(client: TestClient):
+    resp = client.delete("/notifications")
+    assert resp.status_code == 401
+
+
+# ---------------------------------------------------------------------------
 # game_started notifications
 # ---------------------------------------------------------------------------
 
@@ -345,6 +420,9 @@ def test_game_closed_notifies_registered_participants(client: TestClient):
         headers=_auth(player_token),
     )
     client.post(f"/games/{game['id']}/start", headers=_auth(dealer_token))
+    parts = client.get(f"/games/{game['id']}/participants", headers=_auth(dealer_token)).json()
+    for p in parts:
+        client.put(f"/games/{game['id']}/final-stacks/{p['id']}", json={"chips_amount": 0.0}, headers=_auth(dealer_token))
     resp = client.post(f"/games/{game['id']}/close", headers=_auth(dealer_token))
     assert resp.status_code == 200
 

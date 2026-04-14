@@ -65,17 +65,14 @@ def _get_or_create_user(db, email, full_name, password):
 
 
 def seed(db):
-    print("
-=== Poker Night Ledger -- Demo Seed ===
-")
+    print("\n=== Poker Night Ledger -- Demo Seed ===\n")
 
     print("-- Users --")
     alice = _get_or_create_user(db, **DEMO_USERS[0])
     bob   = _get_or_create_user(db, **DEMO_USERS[1])
     carol = _get_or_create_user(db, **DEMO_USERS[2])
 
-    print("
--- Game --")
+    print("\n-- Game --")
     game = Game(
         title="Demo Poker Night",
         created_by_user_id=alice.id,
@@ -87,10 +84,9 @@ def seed(db):
     )
     db.add(game)
     db.flush()
-    print(f"  Created game: {game.id} -- "{game.title}"")
+    print(f'  Created game: {game.id} -- "{game.title}"')
 
-    print("
--- Participants --")
+    print("\n-- Participants --")
     p_alice = Participant(
         game_id=game.id, user_id=alice.id,
         participant_type=ParticipantType.registered, role_in_game=RoleInGame.dealer,
@@ -111,8 +107,7 @@ def seed(db):
     db.flush()
     print("  alice (dealer), bob (player), carol (player), Dave Guest (guest)")
 
-    print("
--- Buy-ins --")
+    print("\n-- Buy-ins --")
     # Total chips in: 10000+5000+5000+5000+5000 = 30000
     # Total cash in:  100+50+50+50+50 = 300
     buy_ins = [
@@ -136,8 +131,7 @@ def seed(db):
     db.flush()
     print(f"  {len(buy_ins)} buy-in records (alice=100, bob=100, carol=50, dave=50)")
 
-    print("
--- Expenses --")
+    print("\n-- Expenses --")
     pizza = Expense(
         game_id=game.id, title="Pizza",
         total_amount=Decimal("40"),
@@ -154,8 +148,7 @@ def seed(db):
     ])
     print("  Pizza $40.00, split evenly among all 4 participants")
 
-    print("
--- Final stacks --")
+    print("\n-- Final stacks --")
     # Chips redistribute: alice wins most; total stays 30000
     # alice: 14000, bob: 8000, carol: 4000, dave: 4000
     db.add_all([
@@ -171,21 +164,18 @@ def seed(db):
 
     db.commit()
 
-    print("
-=== Done! ===")
+    print("\n=== Done! ===")
     print(f"  Game ID  : {game.id}")
     print(f"  Status   : {game.status.value}")
-    print("
-Demo login credentials  (password: demo1234):")
+    print("\nDemo login credentials  (password: demo1234):")
     print("  alice@demo.com  (dealer)")
     print("  bob@demo.com    (player)")
     print("  carol@demo.com  (player)")
-    print("
-Useful API calls (authenticate as alice first):")
+    print("\nUseful API calls (authenticate as alice first):")
     print(f"  GET  /games/{game.id}/settlement")
     print(f"  GET  /games/{game.id}/settlement/audit")
-    print( "  GET  /history/games")
-    print( "  GET  /stats/me")
+    print("  GET  /history/games")
+    print("  GET  /stats/me")
     print()
 
 

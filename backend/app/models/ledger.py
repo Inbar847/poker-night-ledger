@@ -101,6 +101,10 @@ class ExpenseSplit(Base):
 
     expense: Mapped["Expense"] = relationship("Expense", back_populates="splits")
 
+    __table_args__ = (
+        UniqueConstraint("expense_id", "participant_id", name="uq_expense_split_expense_participant"),
+    )
+
 
 class FinalStack(Base):
     __tablename__ = "final_stacks"

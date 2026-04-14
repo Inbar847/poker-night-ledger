@@ -29,3 +29,8 @@ export async function markNotificationRead(id: string): Promise<AppNotification>
 export async function markAllNotificationsRead(): Promise<MarkAllReadResult> {
   return apiClient.post<MarkAllReadResult>("/notifications/read-all");
 }
+
+/** Permanently delete all notifications for the current user. */
+export async function deleteAllNotifications(): Promise<void> {
+  return apiClient.delete<void>("/notifications");
+}

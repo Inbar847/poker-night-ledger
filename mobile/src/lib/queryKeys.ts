@@ -74,4 +74,14 @@ export const queryKeys = {
 
   /** Friend leaderboard for the current user. */
   leaderboard: ["social", "leaderboard"] as const,
+
+  /** Pending game invitations for a specific game (dealer view). */
+  gameInvitations: (gameId: string) =>
+    ["games", gameId, "invitations"] as const,
+
+  /** Pending game invitations for the current user. */
+  pendingInvitations: ["invitations", "pending"] as const,
+
+  /** Audit trail (game edits) for a closed game. */
+  gameEdits: (gameId: string) => ["games", gameId, "edits"] as const,
 };

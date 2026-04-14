@@ -1,7 +1,9 @@
 """
 Ledger router — buy-ins, expenses, and final stacks for a live game.
 
-All mutation endpoints are dealer-only.
+Buy-in mutation endpoints are dealer-only.
+Expense mutations: any active participant can create (self as payer);
+creator or dealer can edit/delete.
 All read endpoints require game participation.
 
 Stage 5: mutation endpoints are async so they can await manager.broadcast().
@@ -15,7 +17,7 @@ from sqlalchemy.orm import Session
 from app.core.deps import get_current_user
 from app.database.session import get_db
 from app.models.game import Game
-from app.models.participant import Participant, RoleInGame
+from app.models.participant import Participant, ParticipantStatus, RoleInGame
 from app.models.user import User
 from app.realtime import events as rt_events
 from app.realtime.manager import manager
@@ -173,7 +175,25 @@ async def create_expense(
 ) -> ExpenseResponse:
     game = _get_game_or_404(db, game_id)
     participant = _get_participant_or_403(db, game_id, current_user.id)
-    _require_dealer(participant)
+
+    # Any active participant can create an expense (not just dealer).
+    # left_early and removed_before_start are blocked.
+    if participant.status != ParticipantStatus.active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only active participants can create expenses",
+        )
+
+    # Non-dealer participants must be the payer (cannot claim someone else paid).
+    if (
+        participant.role_in_game != RoleInGame.dealer
+        and data.paid_by_participant_id != participant.id
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Non-dealer participants can only create expenses where they are the payer",
+        )
+
     try:
         result = ledger_service.create_expense(db, game, data, current_user.id)
     except ValueError as exc:
@@ -204,11 +224,30 @@ async def update_expense(
 ) -> ExpenseResponse:
     game = _get_game_or_404(db, game_id)
     participant = _get_participant_or_403(db, game_id, current_user.id)
-    _require_dealer(participant)
 
     expense = ledger_service.get_expense(db, game_id, expense_id)
     if expense is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Expense not found")
+
+    # Allow update if caller is the dealer OR the expense creator.
+    is_dealer = participant.role_in_game == RoleInGame.dealer
+    is_creator = expense.created_by_user_id == current_user.id
+    if not is_dealer and not is_creator:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only the dealer or expense creator can edit this expense",
+        )
+
+    # If the caller is not the dealer and is changing paid_by, it must remain their own.
+    if (
+        not is_dealer
+        and data.paid_by_participant_id is not None
+        and data.paid_by_participant_id != participant.id
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Non-dealer participants can only set themselves as payer",
+        )
 
     try:
         result = ledger_service.update_expense(db, game, expense, data)
@@ -228,11 +267,19 @@ async def delete_expense(
 ) -> None:
     game = _get_game_or_404(db, game_id)
     participant = _get_participant_or_403(db, game_id, current_user.id)
-    _require_dealer(participant)
 
     expense = ledger_service.get_expense(db, game_id, expense_id)
     if expense is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Expense not found")
+
+    # Allow delete if caller is the dealer OR the expense creator.
+    is_dealer = participant.role_in_game == RoleInGame.dealer
+    is_creator = expense.created_by_user_id == current_user.id
+    if not is_dealer and not is_creator:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only the dealer or expense creator can delete this expense",
+        )
 
     deleted_id = expense.id
     try:

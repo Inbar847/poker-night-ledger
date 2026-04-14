@@ -85,3 +85,38 @@ def mark_all_read(db: Session, user_id: uuid.UUID) -> int:
     )
     db.commit()
     return updated
+
+
+def delete_all_for_user(db: Session, user_id: uuid.UUID) -> int:
+    """Permanently delete all notifications for a user. Returns count of rows deleted."""
+    deleted = (
+        db.query(Notification)
+        .filter(Notification.user_id == user_id)
+        .delete(synchronize_session="fetch")
+    )
+    db.commit()
+    return deleted
+
+
+def delete_settlement_owed_for_game(db: Session, game_id: uuid.UUID) -> int:
+    """Delete all settlement_owed notifications for a specific game.
+
+    Matches by data->>'game_id'. Uses Python-level filtering for SQLite
+    compatibility in tests.
+
+    Uses flush() instead of commit() so the caller controls the transaction.
+    """
+    game_id_str = str(game_id)
+    notifications = (
+        db.query(Notification)
+        .filter(Notification.type == NotificationType.settlement_owed)
+        .all()
+    )
+    count = 0
+    for n in notifications:
+        if n.data and n.data.get("game_id") == game_id_str:
+            db.delete(n)
+            count += 1
+    if count:
+        db.flush()
+    return count

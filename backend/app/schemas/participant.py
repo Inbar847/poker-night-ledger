@@ -3,7 +3,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from app.models.participant import ParticipantType, RoleInGame
+from app.models.participant import ParticipantStatus, ParticipantType, RoleInGame
 
 
 class ParticipantResponse(BaseModel):
@@ -16,6 +16,7 @@ class ParticipantResponse(BaseModel):
     display_name: str
     participant_type: ParticipantType
     role_in_game: RoleInGame
+    status: ParticipantStatus = ParticipantStatus.active
     joined_at: datetime
 
 

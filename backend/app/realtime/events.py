@@ -105,3 +105,61 @@ def expense_deleted(game_id: uuid.UUID, expense_id: uuid.UUID) -> dict[str, Any]
 
 def final_stack_updated(game_id: uuid.UUID, final_stack: dict[str, Any]) -> dict[str, Any]:
     return _envelope("final_stack.updated", game_id, {"final_stack": final_stack})
+
+
+# ---------------------------------------------------------------------------
+# Game invitation events
+# ---------------------------------------------------------------------------
+
+
+def invitation_accepted(game_id: uuid.UUID, participant: dict[str, Any]) -> dict[str, Any]:
+    """Emitted when an invited user accepts a game invitation and joins as participant."""
+    return _envelope("game.invitation_accepted", game_id, {"participant": participant})
+
+
+# ---------------------------------------------------------------------------
+# Personal user-channel events (Stage 26)
+# ---------------------------------------------------------------------------
+
+
+def user_game_invitation(
+    invitation_id: uuid.UUID,
+    game_id: uuid.UUID,
+    game_title: str,
+    inviter_name: str,
+) -> dict[str, Any]:
+    """Sent to the invited user's personal channel when a game invitation is created.
+
+    Uses a distinct envelope without game_id at the top level since this event
+    targets a user channel, not a game room.
+    """
+    return {
+        "type": "user.game_invitation",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "payload": {
+            "invitation_id": str(invitation_id),
+            "game_id": str(game_id),
+            "game_title": game_title,
+            "inviter_name": inviter_name,
+        },
+    }
+
+
+# ---------------------------------------------------------------------------
+# Participant status events
+# ---------------------------------------------------------------------------
+
+
+def participant_status_changed(
+    game_id: uuid.UUID, participant_id: uuid.UUID, new_status: str, display_name: str
+) -> dict[str, Any]:
+    """Emitted when a participant's lifecycle status changes (e.g. early cash-out)."""
+    return _envelope(
+        "game.participant_status_changed",
+        game_id,
+        {
+            "participant_id": str(participant_id),
+            "status": new_status,
+            "display_name": display_name,
+        },
+    )

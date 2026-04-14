@@ -80,7 +80,11 @@ def _start(client: TestClient, token: str, game_id: str) -> None:
 
 
 def _close(client: TestClient, token: str, game_id: str) -> None:
-    r = client.post(f"/games/{game_id}/close", headers=_auth(token))
+    r = client.post(
+        f"/games/{game_id}/close",
+        json={"shortage_strategy": "equal_all"},
+        headers=_auth(token),
+    )
     assert r.status_code == 200, r.text
 
 
@@ -222,6 +226,9 @@ def test_settlement_requires_participation(client: TestClient):
     game = _create_game(client, dealer_token)
     game_id = game["id"]
     _start(client, dealer_token, game_id)
+    ps = _get_participants(client, dealer_token, game_id)
+    for p in ps:
+        _set_final_stack(client, dealer_token, game_id, p["id"], 0)
     _close(client, dealer_token, game_id)
 
     r = _get_settlement(client, outsider_token, game_id)
@@ -501,7 +508,7 @@ def test_guest_participant_in_settlement(client: TestClient):
 
 
 def test_incomplete_settlement_missing_final_stack(client: TestClient):
-    """If any participant lacks a final stack, is_complete=False and transfers is []."""
+    """Close is blocked when any participant lacks a final stack (returns 400 with missing list)."""
     dealer_token = _register_and_login(client, "d_inc@example.com")
     player_token = _register_and_login(client, "p_inc@example.com")
 
@@ -510,17 +517,19 @@ def test_incomplete_settlement_missing_final_stack(client: TestClient):
     _join(client, player_token, game["invite_token"])
     ps = _get_participants(client, dealer_token, gid)
     dpid = next(p for p in ps if p["role_in_game"] == "dealer")["id"]
+    ppid = next(p for p in ps if p["role_in_game"] == "player")["id"]
 
     _start(client, dealer_token, gid)
     _buy_in(client, dealer_token, gid, dpid, 100.0, 10000.0)
     # Only dealer gets a final stack; player does not
     _set_final_stack(client, dealer_token, gid, dpid, 10000)
-    _close(client, dealer_token, gid)
+    r = client.post(f"/games/{gid}/close", json={}, headers=_auth(dealer_token))
 
-    r = _get_settlement(client, dealer_token, gid)
+    assert r.status_code == 400
     body = r.json()
-    assert body["is_complete"] is False
-    assert body["transfers"] == []
+    assert body["detail"] == "Cannot close game: missing final chip counts"
+    assert len(body["missing_final_stacks"]) == 1
+    assert body["missing_final_stacks"][0]["participant_id"] == ppid
 
 
 # ---------------------------------------------------------------------------

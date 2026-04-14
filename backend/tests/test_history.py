@@ -67,7 +67,11 @@ def _start(client: TestClient, token: str, game_id: str) -> None:
 
 
 def _close(client: TestClient, token: str, game_id: str) -> None:
-    r = client.post(f"/games/{game_id}/close", headers=_auth(token))
+    r = client.post(
+        f"/games/{game_id}/close",
+        json={"shortage_strategy": "equal_all"},
+        headers=_auth(token),
+    )
     assert r.status_code == 200, r.text
 
 
@@ -213,7 +217,8 @@ class TestListHistory:
         assert len(items) == 1
         assert items[0]["role_in_game"] == "player"
 
-    def test_net_balance_none_without_final_stack(self, client: TestClient) -> None:
+    def test_close_blocked_without_final_stack(self, client: TestClient) -> None:
+        """Closing a game without final stacks is now blocked (returns 400)."""
         token = _register_and_login(client, "hist_no_stack@test.com")
         game = _create_game(client, token)
         participants = _get_participants(client, token, game["id"])
@@ -221,11 +226,15 @@ class TestListHistory:
         _start(client, token, game["id"])
         _add_buy_in(client, token, game["id"], dealer_pid, 100, 10000)
         # Intentionally omit final stack
-        _close(client, token, game["id"])
-
-        r = client.get("/history/games", headers=_auth(token))
-        assert r.status_code == 200
-        assert r.json()[0]["net_balance"] is None
+        r = client.post(
+            f"/games/{game['id']}/close",
+            json={},
+            headers=_auth(token),
+        )
+        assert r.status_code == 400
+        body = r.json()
+        assert "missing_final_stacks" in body
+        assert body["missing_final_stacks"][0]["participant_id"] == dealer_pid
 
     def test_net_balance_computed_correctly(self, client: TestClient) -> None:
         """
@@ -406,23 +415,25 @@ class TestGetStats:
         assert data["profitable_games"] == 1
         assert data["win_rate"] == 0.5
 
-    def test_net_none_excluded_from_aggregates(self, client: TestClient) -> None:
-        """Game where player has no final stack should count toward total_games_played
-        but NOT toward games_with_result."""
+    def test_close_blocked_without_final_stack_for_stats(self, client: TestClient) -> None:
+        """Closing a game without final stacks is blocked, so stats remain empty."""
         token = _register_and_login(client, "stats_nostack@test.com")
         game = _create_game(client, token)
         p = _get_participants(client, token, game["id"])[0]["id"]
         _start(client, token, game["id"])
         _add_buy_in(client, token, game["id"], p, 100, 10000)
-        # No final stack
-        _close(client, token, game["id"])
+        # No final stack — close should be blocked
+        r = client.post(
+            f"/games/{game['id']}/close",
+            json={},
+            headers=_auth(token),
+        )
+        assert r.status_code == 400
 
+        # Stats should show no games since none were closed
         r = client.get("/stats/me", headers=_auth(token))
         data = r.json()
-        assert data["total_games_played"] == 1
-        assert data["games_with_result"] == 0
-        assert data["average_net"] is None
-        assert data["win_rate"] is None
+        assert data["total_games_played"] == 0
 
     def test_recent_games_limited_to_five(self, client: TestClient) -> None:
         token = _register_and_login(client, "stats_recent@test.com")

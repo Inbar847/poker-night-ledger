@@ -21,6 +21,7 @@ import * as SecureStore from "expo-secure-store";
 import { create } from "zustand";
 
 import { queryClient } from "@/lib/queryClient";
+import { useInvitationPopupStore } from "@/store/invitationPopupStore";
 
 const KEYS = {
   access: "pnl_access_token",
@@ -97,6 +98,8 @@ export const useAuthStore = create<AuthState>((set) => ({
   clearAuth: async () => {
     // Clear cache first so the next user never sees stale data from this session.
     queryClient.clear();
+    // Reset invitation popup dismissed set so next user starts fresh (Stage 26).
+    useInvitationPopupStore.getState().resetDismissed();
     await SecureStore.deleteItemAsync(KEYS.access);
     await SecureStore.deleteItemAsync(KEYS.refresh);
     set({ accessToken: null, refreshToken: null, userId: null });

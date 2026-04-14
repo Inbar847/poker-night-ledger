@@ -49,6 +49,17 @@ export async function createExpense(
   return apiClient.post<Expense>(`/games/${gameId}/expenses`, data);
 }
 
+export async function updateExpense(
+  gameId: string,
+  expenseId: string,
+  data: Partial<CreateExpenseRequest>,
+): Promise<Expense> {
+  return apiClient.patch<Expense>(
+    `/games/${gameId}/expenses/${expenseId}`,
+    data,
+  );
+}
+
 export async function deleteExpense(
   gameId: string,
   expenseId: string,

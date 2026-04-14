@@ -315,3 +315,39 @@ Phase 2 stages are numbered 10–17.
 All MVP behavior (guest support, realtime, dealer-only buy-in control, settlement engine) is preserved unless `PHASE2_PRODUCT_SPEC.md` explicitly overrides it.
 
 The same "one stage at a time" rule applies. Do not silently continue into the next stage.
+
+---
+
+## Post-Phase-2 (Phase 3)
+
+Phase 2 is complete through Stage 17.
+
+Phase 3 adds game lifecycle improvements, invitation rework, early cash-out, and behavior fixes.  
+Before working on any Phase 3 stage, read these docs in addition to the standard three:
+
+8. `docs/PHASE3_PRODUCT_SPEC.md` — Phase 3 product goals, behavior fixes, and feature rules
+9. `docs/PHASE3_ARCHITECTURE.md` — new models, endpoints, services, and mobile changes
+10. `docs/PHASE3_PLAN.md` — stage-by-stage implementation plan (Stages 18–23)
+
+Phase 3 stages are numbered 18–23.  
+All MVP and Phase 2 behavior is preserved unless `PHASE3_PRODUCT_SPEC.md` explicitly overrides it.
+
+The same "one stage at a time" rule applies. Do not silently continue into the next stage.
+
+---
+
+## Post-Phase-3 (Phase 4)
+
+Phase 3 is complete through Stage 23.
+
+Phase 4 adds live invitation popups, retroactive game editing, player-added expenses, and UX polish.  
+Before working on any Phase 4 stage, read these docs in addition to the standard three:
+
+11. `docs/PHASE4_PRODUCT_SPEC.md` — Phase 4 product goals, permission changes, and feature rules
+12. `docs/PHASE4_ARCHITECTURE.md` — new models, endpoints, services, and mobile changes
+13. `docs/PHASE4_PLAN.md` — stage-by-stage implementation plan (Stages 24–29)
+
+Phase 4 stages are numbered 24–29.  
+All MVP, Phase 2, and Phase 3 behavior is preserved unless `PHASE4_PRODUCT_SPEC.md` explicitly overrides it.
+
+The same "one stage at a time" rule applies. Do not silently continue into the next stage.

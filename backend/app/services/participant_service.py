@@ -3,8 +3,11 @@ import uuid
 from sqlalchemy.orm import Session
 
 from app.models.game import Game
-from app.models.participant import Participant, ParticipantType, RoleInGame
+from app.models.participant import Participant, ParticipantStatus, ParticipantType, RoleInGame
 from app.models.user import User
+
+# Statuses that are included in settlement calculations and require final stacks.
+_SETTLEMENT_ELIGIBLE_STATUSES = (ParticipantStatus.active, ParticipantStatus.left_early)
 
 
 def get_participant_for_user(
@@ -61,3 +64,30 @@ def join_by_token(db: Session, game: Game, user: User) -> Participant:
     db.commit()
     db.refresh(participant)
     return participant
+
+
+def set_participant_status(
+    db: Session, participant_id: uuid.UUID, new_status: ParticipantStatus
+) -> Participant:
+    """Update a participant's lifecycle status."""
+    participant = db.get(Participant, participant_id)
+    if participant is None:
+        raise ValueError(f"Participant {participant_id} not found")
+    participant.status = new_status
+    db.commit()
+    db.refresh(participant)
+    return participant
+
+
+def get_settlement_eligible_participants(
+    db: Session, game_id: uuid.UUID
+) -> list[Participant]:
+    """Return participants with status active or left_early (included in settlement)."""
+    return (
+        db.query(Participant)
+        .filter(
+            Participant.game_id == game_id,
+            Participant.status.in_(_SETTLEMENT_ELIGIBLE_STATUSES),
+        )
+        .all()
+    )
