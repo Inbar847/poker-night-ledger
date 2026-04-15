@@ -101,6 +101,11 @@ export async function cashOut(
   }>(`/games/${gameId}/cashout`, { chips_amount: chipsAmount });
 }
 
+/** Hide a game from the current user's lists (user-specific, not deletion). */
+export async function hideGame(gameId: string): Promise<void> {
+  await apiClient.post<void>(`/games/${gameId}/hide`, {});
+}
+
 export async function inviteUser(
   gameId: string,
   userId: string,

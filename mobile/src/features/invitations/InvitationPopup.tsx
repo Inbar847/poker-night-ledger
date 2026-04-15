@@ -26,6 +26,7 @@ import {
   useDeclineInvitation,
 } from "@/hooks/useGameInvitations";
 import { useInvitationPopupStore } from "@/store/invitationPopupStore";
+import { tokens } from "@/theme";
 
 export default function InvitationPopup() {
   const pendingInvitation = useInvitationPopupStore(
@@ -98,7 +99,7 @@ export default function InvitationPopup() {
               disabled={busy}
             >
               {loading === "decline" ? (
-                <ActivityIndicator size="small" color="#fff" />
+                <ActivityIndicator size="small" color={tokens.color.white} />
               ) : (
                 <Text style={styles.btnText}>Decline</Text>
               )}
@@ -109,7 +110,7 @@ export default function InvitationPopup() {
               disabled={busy}
             >
               {loading === "accept" ? (
-                <ActivityIndicator size="small" color="#fff" />
+                <ActivityIndicator size="small" color={tokens.color.white} />
               ) : (
                 <Text style={styles.btnText}>Accept</Text>
               )}
@@ -127,63 +128,63 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0, 0, 0, 0.6)",
     justifyContent: "center",
     alignItems: "center",
-    padding: 24,
+    padding: tokens.spacing.xl,
   },
   card: {
-    backgroundColor: "#16213e",
-    borderRadius: 16,
-    padding: 24,
+    backgroundColor: tokens.color.bg.elevated,
+    borderRadius: tokens.radius.xl,
+    padding: tokens.spacing.xl,
     width: "100%",
     maxWidth: 340,
     alignItems: "center",
     borderWidth: 1,
-    borderColor: "#0f3460",
+    borderColor: tokens.color.border.default,
   },
   title: {
-    color: "#e94560",
+    color: tokens.color.semantic.warning,
     fontSize: 18,
     fontWeight: "700",
-    marginBottom: 16,
+    marginBottom: tokens.spacing.base,
   },
   body: {
-    color: "#ccc",
+    color: tokens.color.text.secondary,
     fontSize: 15,
     textAlign: "center",
     lineHeight: 22,
   },
   bold: {
     fontWeight: "700",
-    color: "#fff",
+    color: tokens.color.text.primary,
   },
   gameTitle: {
-    color: "#fff",
+    color: tokens.color.text.primary,
     fontSize: 17,
     fontWeight: "700",
     marginTop: 4,
-    marginBottom: 24,
+    marginBottom: tokens.spacing.xl,
     textAlign: "center",
   },
   buttons: {
     flexDirection: "row",
-    gap: 12,
+    gap: tokens.spacing.md,
     width: "100%",
   },
   btn: {
     flex: 1,
-    paddingVertical: 12,
-    borderRadius: 8,
+    paddingVertical: tokens.spacing.md,
+    borderRadius: tokens.radius.md,
     alignItems: "center",
     justifyContent: "center",
-    minHeight: 44,
+    minHeight: tokens.size.touchTarget,
   },
   acceptBtn: {
-    backgroundColor: "#4caf50",
+    backgroundColor: tokens.color.semantic.positive,
   },
   declineBtn: {
-    backgroundColor: "#e94560",
+    backgroundColor: tokens.color.semantic.negative,
   },
   btnText: {
-    color: "#fff",
+    color: tokens.color.white,
     fontSize: 15,
     fontWeight: "600",
   },

@@ -9,23 +9,25 @@
 import { useQuery } from "@tanstack/react-query";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { useState } from "react";
+import { Alert, StyleSheet, View } from "react-native";
+
 import {
-  ActivityIndicator,
-  Alert,
-  KeyboardAvoidingView,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
+  Screen,
+  Section,
+  Card,
   Text,
-  TextInput,
-  View,
-} from "react-native";
+  Button,
+  Spacer,
+  Row,
+  Skeleton,
+  NumericInput,
+} from "@/components";
 
 import { useUpdateClosedFinalStack } from "@/features/game-edits/useGameEdits";
 import { queryKeys } from "@/lib/queryKeys";
 import * as gameService from "@/services/gameService";
 import * as ledgerService from "@/services/ledgerService";
+import { tokens } from "@/theme";
 import type { FinalStack, Participant } from "@/types/game";
 
 // ---------------------------------------------------------------------------
@@ -70,69 +72,74 @@ function FinalStackRow({
       {
         onSuccess: () => setEditing(false),
         onError: (err) =>
-          Alert.alert("Error", err instanceof Error ? err.message : "Failed to update"),
+          Alert.alert(
+            "Error",
+            err instanceof Error ? err.message : "Failed to update",
+          ),
       },
     );
   }
 
   if (editing) {
     return (
-      <View style={[styles.card, styles.cardEditing]}>
-        <Text style={styles.cardName}>{participant.display_name}</Text>
-        <View style={styles.editRow}>
-          <Text style={styles.editLabel}>Chips</Text>
-          <TextInput
-            style={styles.editInput}
-            keyboardType="decimal-pad"
-            value={chipsVal}
-            onChangeText={setChipsVal}
-            autoFocus
-          />
-        </View>
-        <View style={styles.editActions}>
-          <Pressable
-            style={[styles.smallBtn, styles.btnPrimary, updateMutation.isPending && styles.btnDisabled]}
-            onPress={handleSave}
-            disabled={updateMutation.isPending}
-          >
-            {updateMutation.isPending ? (
-              <ActivityIndicator size="small" color="#fff" />
-            ) : (
-              <Text style={styles.btnText}>Save</Text>
-            )}
-          </Pressable>
-          <Pressable
-            style={[styles.smallBtn, styles.btnSecondary]}
-            onPress={() => setEditing(false)}
-          >
-            <Text style={styles.btnTextSecondary}>Cancel</Text>
-          </Pressable>
-        </View>
-      </View>
+      <Card style={[cardStyles.card, cardStyles.cardEditing]}>
+        <Text variant="bodyBold">{participant.display_name}</Text>
+
+        <Spacer size="md" />
+        <NumericInput
+          value={chipsVal}
+          onChangeText={setChipsVal}
+          suffix="chips"
+          placeholder="0"
+          decimal
+        />
+
+        <Spacer size="md" />
+        <Row gap="sm">
+          <View style={cardStyles.actionFlex}>
+            <Button
+              label="Save"
+              variant="primary"
+              fullWidth
+              loading={updateMutation.isPending}
+              disabled={updateMutation.isPending}
+              onPress={handleSave}
+            />
+          </View>
+          <View style={cardStyles.actionFlex}>
+            <Button
+              label="Cancel"
+              variant="secondary"
+              fullWidth
+              onPress={() => setEditing(false)}
+            />
+          </View>
+        </Row>
+      </Card>
     );
   }
 
   return (
-    <Pressable style={styles.card} onPress={() => setEditing(true)}>
-      <View style={styles.cardHeader}>
-        <Text style={styles.cardName}>{participant.display_name}</Text>
-        <Pressable style={styles.editBtn} onPress={() => setEditing(true)}>
-          <Text style={styles.editBtnText}>Edit</Text>
-        </Pressable>
-      </View>
-      <View style={styles.cardDetails}>
-        <Text style={styles.detailText}>
-          {finalStack
-            ? `${parseFloat(finalStack.chips_amount).toFixed(0)} chips`
-            : "No final stack"}
+    <Card style={cardStyles.card} onPress={() => setEditing(true)}>
+      <Row justify="between" align="center">
+        <Text variant="bodyBold" numberOfLines={1} style={cardStyles.name}>
+          {participant.display_name}
         </Text>
-        {cashValue != null ? (
-          <Text style={styles.detailTextSub}>
-            = {currency} {cashValue}
-          </Text>
-        ) : null}
-      </View>
-    </Pressable>
+        <Button label="Edit" variant="secondary" onPress={() => setEditing(true)} />
+      </Row>
+
+      <Spacer size="xs" />
+      <Text variant="body" color="secondary">
+        {finalStack
+          ? `${parseFloat(finalStack.chips_amount).toFixed(0)} chips`
+          : "No final stack"}
+      </Text>
+      {cashValue != null && (
+        <Text variant="caption" color="muted">
+          = {currency} {cashValue}
+        </Text>
+      )}
+    </Card>
   );
 }
 
@@ -172,23 +179,31 @@ export default function EditFinalStacksScreen() {
   return (
     <>
       <Stack.Screen options={{ title: "Edit Final Stacks" }} />
-      <KeyboardAvoidingView
-        style={styles.flex}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-      >
-        <ScrollView
-          contentContainerStyle={styles.container}
-          keyboardShouldPersistTaps="handled"
-        >
-          <View style={styles.infoBanner}>
-            <Text style={styles.infoBannerText}>
-              Editing final chip counts on a closed game. Each change triggers
-              automatic re-settlement and notifies all participants.
-            </Text>
-          </View>
+      <Screen scrollable keyboardAvoiding>
+        <Spacer size="base" />
 
+        {/* Info banner */}
+        <Card style={bannerStyles.info}>
+          <Text variant="caption" color="secondary" style={bannerStyles.text}>
+            Editing final chip counts on a closed game. Each change triggers
+            automatic re-settlement and notifies all participants.
+          </Text>
+        </Card>
+
+        <Spacer size="lg" />
+
+        <Section title="Final Stacks">
           {isLoading ? (
-            <ActivityIndicator color="#e94560" />
+            <View style={{ gap: tokens.spacing.md }}>
+              {[1, 2, 3].map((i) => (
+                <Skeleton
+                  key={i}
+                  width="100%"
+                  height={80}
+                  radius={tokens.radius.lg}
+                />
+              ))}
+            </View>
           ) : (
             participants.map((p) => (
               <FinalStackRow
@@ -201,15 +216,18 @@ export default function EditFinalStacksScreen() {
               />
             ))
           )}
+        </Section>
 
-          <Pressable
-            style={[styles.btn, styles.btnSecondary, { marginTop: 20 }]}
-            onPress={() => router.back()}
-          >
-            <Text style={styles.btnTextSecondary}>Done</Text>
-          </Pressable>
-        </ScrollView>
-      </KeyboardAvoidingView>
+        <Spacer size="lg" />
+        <Button
+          label="Done"
+          variant="secondary"
+          fullWidth
+          onPress={() => router.back()}
+        />
+
+        <Spacer size="4xl" />
+      </Screen>
     </>
   );
 }
@@ -218,77 +236,29 @@ export default function EditFinalStacksScreen() {
 // Styles
 // ---------------------------------------------------------------------------
 
-const styles = StyleSheet.create({
-  flex: { flex: 1 },
-  container: { padding: 16, paddingBottom: 48 },
-  infoBanner: {
-    backgroundColor: "#1a2a1a",
+const bannerStyles = StyleSheet.create({
+  info: {
     borderLeftWidth: 3,
-    borderLeftColor: "#2ecc71",
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 16,
+    borderLeftColor: tokens.color.accent.primary,
   },
-  infoBannerText: { color: "#8fbc8f", fontSize: 13, lineHeight: 18 },
+  text: {
+    // lineHeight inherited from Text variant="caption"
+  },
+});
+
+const cardStyles = StyleSheet.create({
   card: {
-    backgroundColor: "#16213e",
-    borderRadius: 10,
-    padding: 14,
-    marginBottom: 10,
+    marginBottom: tokens.spacing.md,
   },
   cardEditing: {
     borderWidth: 1,
-    borderColor: "#e94560",
+    borderColor: tokens.color.accent.primary,
   },
-  cardHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  cardName: { color: "#fff", fontSize: 15, fontWeight: "600" },
-  editBtn: {
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 6,
-    backgroundColor: "#2a2a5a",
-  },
-  editBtnText: { color: "#ccc", fontSize: 12, fontWeight: "600" },
-  cardDetails: { marginTop: 6 },
-  detailText: { color: "#aaa", fontSize: 14 },
-  detailTextSub: { color: "#666", fontSize: 12, marginTop: 2 },
-  editRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    marginTop: 10,
-  },
-  editLabel: { color: "#888", fontSize: 13, width: 50 },
-  editInput: {
+  name: {
     flex: 1,
-    backgroundColor: "#0f0e17",
-    borderWidth: 1,
-    borderColor: "#2a2a5a",
-    borderRadius: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    color: "#fff",
-    fontSize: 14,
+    marginRight: tokens.spacing.md,
   },
-  editActions: { flexDirection: "row", gap: 8, marginTop: 10 },
-  smallBtn: {
-    borderRadius: 6,
-    paddingVertical: 8,
-    paddingHorizontal: 14,
-    alignItems: "center",
+  actionFlex: {
+    flex: 1,
   },
-  btn: {
-    borderRadius: 8,
-    paddingVertical: 13,
-    alignItems: "center",
-  },
-  btnPrimary: { backgroundColor: "#e94560" },
-  btnSecondary: { backgroundColor: "#2a2a5a" },
-  btnDisabled: { opacity: 0.5 },
-  btnText: { color: "#fff", fontSize: 14, fontWeight: "600" },
-  btnTextSecondary: { color: "#ccc", fontSize: 14 },
 });

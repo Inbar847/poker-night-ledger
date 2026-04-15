@@ -5,15 +5,19 @@ description: Execute exactly one approved stage from docs/PLAN.md for Poker Nigh
 
 # execute-stage
 
-Use this skill when the user asks to implement a specific stage from `docs/PLAN.md`.
+Use this skill when the user asks to implement a specific stage from the project plans.
+
+## Phase routing
+
+- **Stages 0–9:** Read `docs/PLAN.md`, `docs/PRODUCT_SPEC.md`, `docs/ARCHITECTURE.md`
+- **Stages 10–17:** Also read `docs/PHASE2_PRODUCT_SPEC.md`, `docs/PHASE2_ARCHITECTURE.md`, `docs/PHASE2_PLAN.md`
+- **Stages 18–23:** Also read `docs/PHASE3_PRODUCT_SPEC.md`, `docs/PHASE3_ARCHITECTURE.md`, `docs/PHASE3_PLAN.md`
+- **Stages 24–29:** Also read `docs/PHASE4_PRODUCT_SPEC.md`, `docs/PHASE4_ARCHITECTURE.md`, `docs/PHASE4_PLAN.md`
+- **Stages 30–41:** Use the `frontend-phase5-stage` skill instead — it has Phase 5-specific rules for the frontend redesign. If invoked here, redirect to that skill.
 
 ## Required behavior
 
-1. Read these files first:
-   - `CLAUDE.md`
-   - `docs/PLAN.md`
-   - `docs/PRODUCT_SPEC.md`
-   - `docs/ARCHITECTURE.md`
+1. Read `CLAUDE.md` and the docs listed for the stage's phase (see phase routing above).
 
 2. Identify the exact stage requested by the user.
 

@@ -18,8 +18,10 @@ import {
   View,
 } from "react-native";
 
+import { currencySymbol } from "@/components";
 import { queryKeys } from "@/lib/queryKeys";
 import * as gameService from "@/services/gameService";
+import { tokens } from "@/theme";
 
 interface CashoutModalProps {
   visible: boolean;
@@ -87,7 +89,7 @@ export default function CashoutModal({
           <TextInput
             style={s.input}
             placeholder="0"
-            placeholderTextColor="#555"
+            placeholderTextColor={tokens.color.text.muted}
             keyboardType="decimal-pad"
             value={chips}
             onChangeText={setChips}
@@ -96,7 +98,7 @@ export default function CashoutModal({
 
           {cashValue !== null && (
             <Text style={s.preview}>
-              = {currency} {cashValue}
+              = {currencySymbol(currency)}{cashValue}
             </Text>
           )}
 
@@ -106,7 +108,7 @@ export default function CashoutModal({
             onPress={() => {
               Alert.alert(
                 "Confirm Cash Out",
-                `Leave the game with ${chips} chips (${currency} ${cashValue ?? "?"})? This cannot be undone.`,
+                `Leave the game with ${chips} chips (${currencySymbol(currency)}${cashValue ?? "?"})? This cannot be undone.`,
                 [
                   { text: "Cancel", style: "cancel" },
                   {
@@ -119,7 +121,7 @@ export default function CashoutModal({
             }}
           >
             {mutation.isPending ? (
-              <ActivityIndicator color="#fff" size="small" />
+              <ActivityIndicator color={tokens.color.white} size="small" />
             ) : (
               <Text style={s.btnText}>Cash Out</Text>
             )}
@@ -140,60 +142,60 @@ const s = StyleSheet.create({
     backgroundColor: "rgba(0,0,0,0.7)",
     alignItems: "center",
     justifyContent: "center",
-    padding: 24,
+    padding: tokens.spacing.xl,
   },
   sheet: {
-    backgroundColor: "#16213e",
-    borderRadius: 14,
-    padding: 24,
+    backgroundColor: tokens.color.bg.elevated,
+    borderRadius: tokens.radius.xl,
+    padding: tokens.spacing.xl,
     width: "100%",
   },
   title: {
-    color: "#fff",
+    color: tokens.color.text.primary,
     fontSize: 18,
     fontWeight: "700",
-    marginBottom: 8,
+    marginBottom: tokens.spacing.sm,
   },
   desc: {
-    color: "#aaa",
+    color: tokens.color.text.secondary,
     fontSize: 13,
     lineHeight: 19,
-    marginBottom: 16,
+    marginBottom: tokens.spacing.base,
   },
   label: {
-    color: "#ccc",
+    color: tokens.color.text.secondary,
     fontSize: 13,
     fontWeight: "600",
     marginBottom: 6,
   },
   input: {
-    backgroundColor: "#1a1a3e",
+    backgroundColor: tokens.color.bg.surface,
     borderWidth: 1,
-    borderColor: "#2a2a5a",
-    borderRadius: 8,
+    borderColor: tokens.color.border.default,
+    borderRadius: tokens.radius.md,
     paddingHorizontal: 14,
     paddingVertical: 12,
-    color: "#fff",
+    color: tokens.color.text.primary,
     fontSize: 16,
-    marginBottom: 8,
+    marginBottom: tokens.spacing.sm,
   },
   preview: {
-    color: "#2ecc71",
+    color: tokens.color.semantic.positive,
     fontSize: 13,
-    marginBottom: 16,
+    marginBottom: tokens.spacing.base,
   },
   btn: {
-    borderRadius: 8,
+    borderRadius: tokens.radius.md,
     paddingVertical: 13,
     alignItems: "center",
   },
-  btnPrimary: { backgroundColor: "#e94560" },
+  btnPrimary: { backgroundColor: tokens.color.semantic.negative },
   btnDisabled: { opacity: 0.5 },
-  btnText: { color: "#fff", fontSize: 14, fontWeight: "600" },
+  btnText: { color: tokens.color.white, fontSize: 14, fontWeight: "600" },
   cancelBtn: {
-    marginTop: 8,
+    marginTop: tokens.spacing.sm,
     alignItems: "center",
     paddingVertical: 10,
   },
-  cancelText: { color: "#666", fontSize: 14 },
+  cancelText: { color: tokens.color.text.muted, fontSize: 14 },
 });

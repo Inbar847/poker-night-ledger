@@ -12,6 +12,7 @@ import {
   useAcceptInvitation,
   useDeclineInvitation,
 } from "@/hooks/useGameInvitations";
+import { tokens } from "@/theme";
 
 interface PendingInvitationCardProps {
   gameId: string;
@@ -84,7 +85,7 @@ export default function PendingInvitationCard({
             disabled={isPending}
           >
             {acceptMutation.isPending ? (
-              <ActivityIndicator size="small" color="#fff" />
+              <ActivityIndicator size="small" color={tokens.color.white} />
             ) : (
               <Text style={styles.btnText}>Accept</Text>
             )}
@@ -95,7 +96,7 @@ export default function PendingInvitationCard({
             disabled={isPending}
           >
             {declineMutation.isPending ? (
-              <ActivityIndicator size="small" color="#ccc" />
+              <ActivityIndicator size="small" color={tokens.color.text.secondary} />
             ) : (
               <Text style={styles.declineBtnText}>Decline</Text>
             )}
@@ -108,22 +109,22 @@ export default function PendingInvitationCard({
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: "#16213e",
-    borderRadius: 12,
-    padding: 16,
-    marginVertical: 8,
-    marginHorizontal: 16,
+    backgroundColor: tokens.color.bg.elevated,
+    borderRadius: tokens.radius.lg,
+    padding: tokens.spacing.base,
+    marginVertical: tokens.spacing.sm,
+    marginHorizontal: tokens.spacing.base,
   },
   title: {
-    color: "#fff",
+    color: tokens.color.text.primary,
     fontSize: 16,
     fontWeight: "700",
     marginBottom: 4,
   },
   subtitle: {
-    color: "#888",
+    color: tokens.color.text.muted,
     fontSize: 13,
-    marginBottom: 12,
+    marginBottom: tokens.spacing.md,
   },
   actions: {
     flexDirection: "row",
@@ -131,40 +132,40 @@ const styles = StyleSheet.create({
   },
   btn: {
     flex: 1,
-    borderRadius: 8,
+    borderRadius: tokens.radius.md,
     paddingVertical: 11,
     alignItems: "center",
   },
   acceptBtn: {
-    backgroundColor: "#2ecc71",
+    backgroundColor: tokens.color.semantic.positive,
   },
   declineBtn: {
-    backgroundColor: "#2a2a5a",
+    backgroundColor: tokens.color.bg.surface,
   },
   btnDisabled: {
     opacity: 0.6,
   },
   btnText: {
-    color: "#fff",
+    color: tokens.color.white,
     fontSize: 14,
     fontWeight: "600",
   },
   declineBtnText: {
-    color: "#ccc",
+    color: tokens.color.text.secondary,
     fontSize: 14,
     fontWeight: "600",
   },
   successText: {
-    color: "#2ecc71",
+    color: tokens.color.semantic.positive,
     fontSize: 14,
     fontWeight: "600",
   },
   declinedText: {
-    color: "#888",
+    color: tokens.color.text.muted,
     fontSize: 14,
   },
   errorText: {
-    color: "#e94560",
+    color: tokens.color.semantic.negative,
     fontSize: 14,
   },
 });

@@ -44,14 +44,29 @@ def get_game_by_invite_token(db: Session, token: str) -> Game | None:
 
 
 def list_games_for_user(db: Session, user_id: uuid.UUID) -> list[Game]:
-    """Return all games where the user has a participant row, newest first."""
+    """Return all non-hidden games where the user has a participant row, newest first."""
     return (
         db.query(Game)
         .join(Participant, Participant.game_id == Game.id)
-        .filter(Participant.user_id == user_id)
+        .filter(
+            Participant.user_id == user_id,
+            Participant.hidden_at.is_(None),
+        )
         .order_by(Game.created_at.desc())
         .all()
     )
+
+
+def hide_game_for_user(
+    db: Session, game: Game, participant: Participant
+) -> Participant:
+    """Mark a game as hidden for a specific user by setting hidden_at."""
+    if game.status == GameStatus.active:
+        raise ValueError("Cannot hide an active game")
+    participant.hidden_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(participant)
+    return participant
 
 
 def rotate_invite_token(db: Session, game: Game) -> Game:

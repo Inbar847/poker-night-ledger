@@ -2,7 +2,7 @@
  * Create game screen.
  *
  * Fields: title (required), chip_cash_rate (required, > 0),
- *         currency (optional, default USD).
+ *         currency (optional, default ILS).
  *
  * On success: navigate to the new game's screen.
  */
@@ -11,19 +11,19 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Stack, useRouter } from "expo-router";
 import { useForm } from "react-hook-form";
-import {
-  ActivityIndicator,
-  KeyboardAvoidingView,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from "react-native";
+import { StyleSheet, View } from "react-native";
 import { z } from "zod";
 
+import {
+  Text,
+  Button,
+  Input,
+  Spacer,
+  Screen,
+  FormField,
+  Card,
+} from "@/components";
+import { tokens } from "@/theme";
 import { queryKeys } from "@/lib/queryKeys";
 import * as gameService from "@/services/gameService";
 import { useAuthStore } from "@/store/authStore";
@@ -34,7 +34,7 @@ const schema = z.object({
     .string()
     .min(1, "Chip/cash rate is required")
     .refine((v) => parseFloat(v) > 0, "Rate must be greater than 0"),
-  currency: z.string().max(10).default("USD"),
+  currency: z.string().max(10).default("ILS"),
 });
 
 type FormValues = z.infer<typeof schema>;
@@ -59,7 +59,7 @@ export default function CreateGameScreen() {
     formState: { errors },
   } = useForm<FormValues>({
     resolver: zodResolver(schema),
-    defaultValues: { title: "", chip_cash_rate: "", currency: "USD" },
+    defaultValues: { title: "", chip_cash_rate: "", currency: "ILS" },
   });
 
   const title = watch("title");
@@ -70,131 +70,97 @@ export default function CreateGameScreen() {
     mutation.mutate({
       title: values.title,
       chip_cash_rate: values.chip_cash_rate,
-      currency: values.currency || "USD",
+      currency: values.currency || "ILS",
     });
   };
 
   return (
     <>
       <Stack.Screen options={{ title: "Create Game" }} />
-      <KeyboardAvoidingView
-        style={styles.flex}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-      >
-        <ScrollView
-          contentContainerStyle={styles.container}
-          keyboardShouldPersistTaps="handled"
-        >
+      <Screen scrollable keyboardAvoiding>
+        <View style={styles.content}>
+          <Spacer size="base" />
+
           {mutation.error ? (
-            <View style={styles.errorBanner}>
-              <Text style={styles.errorBannerText}>
+            <Card variant="default" padding="compact" style={styles.errorBanner}>
+              <Text variant="caption" color="negative">
                 {mutation.error instanceof Error
                   ? mutation.error.message
                   : "Failed to create game"}
               </Text>
-            </View>
+            </Card>
           ) : null}
 
-          <View style={styles.field}>
-            <Text style={styles.label}>Game title *</Text>
-            <TextInput
-              style={[styles.input, errors.title && styles.inputError]}
+          <FormField label="Game title" error={errors.title?.message}>
+            <Input
               placeholder="Friday Night Poker"
-              placeholderTextColor="#555"
               value={title}
               onChangeText={(v) =>
                 setValue("title", v, { shouldValidate: true })
               }
+              error={errors.title?.message}
             />
-            {errors.title ? (
-              <Text style={styles.fieldError}>{errors.title.message}</Text>
-            ) : null}
-          </View>
+          </FormField>
 
-          <View style={styles.field}>
-            <Text style={styles.label}>Chip / cash rate *</Text>
-            <Text style={styles.hint}>
+          <FormField
+            label="Chip / cash rate"
+            error={errors.chip_cash_rate?.message}
+          >
+            <Text variant="caption" color="muted" style={styles.hint}>
               How much cash (in {currency}) is one chip worth?
             </Text>
-            <TextInput
-              style={[styles.input, errors.chip_cash_rate && styles.inputError]}
+            <Spacer size="xs" />
+            <Input
               placeholder="0.01"
-              placeholderTextColor="#555"
               keyboardType="decimal-pad"
               value={rate}
               onChangeText={(v) =>
                 setValue("chip_cash_rate", v, { shouldValidate: true })
               }
+              error={errors.chip_cash_rate?.message}
             />
-            {errors.chip_cash_rate ? (
-              <Text style={styles.fieldError}>
-                {errors.chip_cash_rate.message}
-              </Text>
-            ) : null}
-          </View>
+          </FormField>
 
-          <View style={styles.field}>
-            <Text style={styles.label}>Currency</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="USD"
-              placeholderTextColor="#555"
+          <FormField label="Currency">
+            <Input
+              placeholder="ILS"
               autoCapitalize="characters"
               maxLength={10}
               value={currency}
               onChangeText={(v) => setValue("currency", v.toUpperCase())}
             />
-          </View>
+          </FormField>
 
-          <Pressable
-            style={[styles.btn, mutation.isPending && styles.btnDisabled]}
-            onPress={handleSubmit(onSubmit)}
+          <Spacer size="xl" />
+
+          <Button
+            label="Create Game"
+            variant="primary"
+            size="lg"
+            fullWidth
+            loading={mutation.isPending}
             disabled={mutation.isPending}
-          >
-            {mutation.isPending ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <Text style={styles.btnText}>Create Game</Text>
-            )}
-          </Pressable>
-        </ScrollView>
-      </KeyboardAvoidingView>
+            onPress={handleSubmit(onSubmit)}
+          />
+
+          <Spacer size="4xl" />
+        </View>
+      </Screen>
     </>
   );
 }
 
 const styles = StyleSheet.create({
-  flex: { flex: 1 },
-  container: { padding: 20, paddingBottom: 48 },
+  content: {
+    paddingHorizontal: tokens.spacing.lg,
+  },
   errorBanner: {
-    backgroundColor: "#4a1020",
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 16,
-  },
-  errorBannerText: { color: "#ff6b6b", fontSize: 14 },
-  field: { marginBottom: 18 },
-  label: { color: "#ccc", fontSize: 14, marginBottom: 4 },
-  hint: { color: "#666", fontSize: 12, marginBottom: 6 },
-  input: {
-    backgroundColor: "#16213e",
+    backgroundColor: `${tokens.color.semantic.negative}1F`,
     borderWidth: 1,
-    borderColor: "#2a2a5a",
-    borderRadius: 8,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    color: "#fff",
-    fontSize: 16,
+    borderColor: `${tokens.color.semantic.negative}40`,
+    marginBottom: tokens.spacing.base,
   },
-  inputError: { borderColor: "#e94560" },
-  fieldError: { color: "#e94560", fontSize: 12, marginTop: 4 },
-  btn: {
-    backgroundColor: "#e94560",
-    borderRadius: 8,
-    paddingVertical: 14,
-    alignItems: "center",
-    marginTop: 8,
+  hint: {
+    marginBottom: tokens.spacing.xs,
   },
-  btnDisabled: { opacity: 0.6 },
-  btnText: { color: "#fff", fontSize: 15, fontWeight: "600" },
 });

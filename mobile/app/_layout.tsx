@@ -10,10 +10,13 @@
 
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Stack } from "expo-router";
+import { StatusBar } from "react-native";
 import { useEffect } from "react";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
 
 import { queryClient } from "@/lib/queryClient";
 import { useAuthStore } from "@/store/authStore";
+import { tokens } from "@/theme";
 
 function AuthBootstrap() {
   const bootstrap = useAuthStore((s) => s.bootstrap);
@@ -26,16 +29,18 @@ function AuthBootstrap() {
 
 export default function RootLayout() {
   return (
-    <QueryClientProvider client={queryClient}>
-      <AuthBootstrap />
-      <Stack
-        screenOptions={{
-          headerStyle: { backgroundColor: "#1a1a2e" },
-          headerTintColor: "#ffffff",
-          headerTitleStyle: { fontWeight: "bold" },
-          contentStyle: { backgroundColor: "#1a1a2e" },
-        }}
-      />
-    </QueryClientProvider>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <QueryClientProvider client={queryClient}>
+        <StatusBar barStyle="light-content" />
+        <AuthBootstrap />
+        <Stack
+          screenOptions={{
+            headerShown: false,
+            contentStyle: { backgroundColor: tokens.color.bg.primary },
+            animation: "fade",
+          }}
+        />
+      </QueryClientProvider>
+    </GestureHandlerRootView>
   );
 }

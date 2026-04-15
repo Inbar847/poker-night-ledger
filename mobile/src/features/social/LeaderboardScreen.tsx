@@ -14,18 +14,28 @@ import { useQuery } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
 import { useState } from "react";
 import {
-  ActivityIndicator,
   FlatList,
-  Image,
   Pressable,
   StyleSheet,
-  Text,
   View,
 } from "react-native";
 
+import {
+  Avatar,
+  Card,
+  EmptyState,
+  ErrorState,
+  FeltBackground,
+  Row,
+  Skeleton,
+  Spacer,
+  Text,
+  MoneyAmount,
+} from "@/components";
 import { queryKeys } from "@/lib/queryKeys";
 import * as socialService from "@/services/socialService";
 import type { LeaderboardEntry } from "@/services/socialService";
+import { tokens } from "@/theme";
 
 // ---------------------------------------------------------------------------
 // Sort types
@@ -75,6 +85,16 @@ function sortEntries(
 }
 
 // ---------------------------------------------------------------------------
+// Rank badge colors
+// ---------------------------------------------------------------------------
+
+const RANK_COLORS: Record<number, string> = {
+  1: "#F1C40F",
+  2: "#A0AEB8",
+  3: "#CD7F32",
+};
+
+// ---------------------------------------------------------------------------
 // LeaderboardRow
 // ---------------------------------------------------------------------------
 
@@ -87,21 +107,12 @@ function LeaderboardRow({
 }) {
   const router = useRouter();
   const net = parseFloat(entry.cumulative_net);
-  const netColor = net > 0 ? "#2ecc71" : net < 0 ? "#e94560" : "#aaa";
-  const netSign = net > 0 ? "+" : "";
   const winRateStr =
     entry.win_rate != null
       ? `${(entry.win_rate * 100).toFixed(0)}%`
-      : "—";
+      : "\u2014";
 
-  const rankColor =
-    entry.rank === 1
-      ? "#f1c40f"
-      : entry.rank === 2
-      ? "#aaa"
-      : entry.rank === 3
-      ? "#cd7f32"
-      : "#555";
+  const rankBg = RANK_COLORS[entry.rank ?? 0] ?? tokens.color.text.muted;
 
   const handlePress = () => {
     if (!entry.is_self) {
@@ -110,67 +121,90 @@ function LeaderboardRow({
   };
 
   return (
-    <Pressable
+    <Card
+      variant={entry.is_self ? "prominent" : "default"}
+      padding="compact"
       onPress={handlePress}
-      style={[styles.row, entry.is_self && styles.selfRow]}
+      style={entry.is_self ? styles.selfCard : undefined}
     >
-      {/* Rank */}
-      <View style={[styles.rankBadge, { backgroundColor: rankColor }]}>
-        <Text style={styles.rankText}>{entry.rank}</Text>
-      </View>
-
-      {/* Avatar */}
-      {entry.profile_image_url ? (
-        <Image
-          source={{ uri: entry.profile_image_url }}
-          style={styles.avatar}
-        />
-      ) : (
-        <View style={styles.avatarPlaceholder}>
-          <Text style={styles.avatarInitial}>
-            {(entry.full_name ?? "?").charAt(0).toUpperCase()}
+      <Row align="center" gap="md">
+        {/* Rank */}
+        <View style={[styles.rankBadge, { backgroundColor: rankBg }]}>
+          <Text
+            variant="captionBold"
+            style={styles.rankText}
+          >
+            {entry.rank}
           </Text>
         </View>
-      )}
 
-      {/* Name + you tag */}
-      <View style={styles.nameBlock}>
-        <Text style={styles.name} numberOfLines={1}>
-          {entry.full_name ?? "Unknown"}
-          {entry.is_self ? " (you)" : ""}
-        </Text>
-        <Text style={styles.subtext}>
-          {entry.total_games_played} game
-          {entry.total_games_played !== 1 ? "s" : ""}
-        </Text>
-      </View>
+        {/* Avatar */}
+        <Avatar
+          uri={entry.profile_image_url}
+          name={entry.full_name ?? "?"}
+          size="md"
+        />
 
-      {/* Primary stat for current sort */}
-      <View style={styles.statBlock}>
-        {sortKey === "net" && (
-          <>
-            <Text style={[styles.statValue, { color: netColor }]}>
-              {entry.games_with_result > 0
-                ? `${netSign}${Math.abs(net).toFixed(2)}`
-                : "—"}
+        {/* Name + meta */}
+        <View style={styles.nameBlock}>
+          <Text variant="bodyBold" numberOfLines={1}>
+            {entry.full_name ?? "Unknown"}
+            {entry.is_self ? " (you)" : ""}
+          </Text>
+          <Text variant="caption" color="muted">
+            {entry.total_games_played} game
+            {entry.total_games_played !== 1 ? "s" : ""}
+          </Text>
+        </View>
+
+        {/* Primary stat */}
+        <View style={styles.statBlock}>
+          {sortKey === "net" && (
+            entry.games_with_result > 0 ? (
+              <MoneyAmount amount={net} size="sm" showSign />
+            ) : (
+              <Text variant="body" color="muted">{"\u2014"}</Text>
+            )
+          )}
+          {sortKey === "win_rate" && (
+            <Text variant="numeric" color="primary">
+              {winRateStr}
             </Text>
-            <Text style={styles.statLabel}>net</Text>
-          </>
-        )}
-        {sortKey === "win_rate" && (
-          <>
-            <Text style={styles.statValue}>{winRateStr}</Text>
-            <Text style={styles.statLabel}>win rate</Text>
-          </>
-        )}
-        {sortKey === "games_played" && (
-          <>
-            <Text style={styles.statValue}>{entry.total_games_played}</Text>
-            <Text style={styles.statLabel}>played</Text>
-          </>
-        )}
-      </View>
-    </Pressable>
+          )}
+          {sortKey === "games_played" && (
+            <Text variant="numeric" color="primary">
+              {entry.total_games_played}
+            </Text>
+          )}
+          <Text variant="caption" color="muted">
+            {sortKey === "net"
+              ? "net"
+              : sortKey === "win_rate"
+              ? "win rate"
+              : "played"}
+          </Text>
+        </View>
+      </Row>
+    </Card>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Loading skeleton
+// ---------------------------------------------------------------------------
+
+function LeaderboardSkeleton() {
+  return (
+    <View style={styles.skeletonContainer}>
+      <Skeleton width={200} height={16} />
+      <Spacer size="lg" />
+      {[1, 2, 3, 4, 5].map((i) => (
+        <View key={i}>
+          <Skeleton height={64} radius={tokens.radius.lg} />
+          <Spacer size="md" />
+        </View>
+      ))}
+    </View>
   );
 }
 
@@ -188,69 +222,74 @@ export default function LeaderboardScreen() {
 
   if (isLoading) {
     return (
-      <View style={styles.centered}>
-        <ActivityIndicator size="large" color="#e94560" />
-      </View>
+      <FeltBackground>
+        <LeaderboardSkeleton />
+      </FeltBackground>
     );
   }
 
   if (error || !data) {
     return (
-      <View style={styles.centered}>
-        <Text style={styles.errorText}>Failed to load leaderboard</Text>
-        <Pressable style={styles.retryBtn} onPress={() => refetch()}>
-          <Text style={styles.retryText}>Try again</Text>
-        </Pressable>
-      </View>
+      <FeltBackground>
+        <ErrorState
+          message="Failed to load leaderboard"
+          onRetry={() => void refetch()}
+        />
+      </FeltBackground>
     );
   }
 
   const sorted = sortEntries(data.entries, sortKey);
 
   return (
-    <View style={styles.container}>
+    <FeltBackground>
       {/* Sort toggle */}
       <View style={styles.sortRow}>
-        {SORT_OPTIONS.map((opt) => (
-          <Pressable
-            key={opt.key}
-            style={[
-              styles.sortBtn,
-              sortKey === opt.key && styles.sortBtnActive,
-            ]}
-            onPress={() => setSortKey(opt.key)}
-          >
-            <Text
+        {SORT_OPTIONS.map((opt) => {
+          const active = sortKey === opt.key;
+          return (
+            <Pressable
+              key={opt.key}
               style={[
-                styles.sortBtnText,
-                sortKey === opt.key && styles.sortBtnTextActive,
+                styles.sortBtn,
+                active && styles.sortBtnActive,
               ]}
+              onPress={() => setSortKey(opt.key)}
             >
-              {opt.label}
-            </Text>
-          </Pressable>
-        ))}
+              <Text
+                variant="captionBold"
+                color={active ? "white" : "secondary"}
+              >
+                {opt.label}
+              </Text>
+            </Pressable>
+          );
+        })}
       </View>
 
       {sorted.length === 0 ? (
-        <View style={styles.centered}>
-          <Text style={styles.emptyText}>No data available</Text>
-        </View>
+        <EmptyState
+          title="No data available"
+          description="Play some games with friends to see rankings"
+        />
       ) : (
         <FlatList
           data={sorted}
           keyExtractor={(e) => e.user_id}
           renderItem={({ item }) => (
-            <LeaderboardRow entry={item} sortKey={sortKey} />
+            <View style={styles.rowWrapper}>
+              <LeaderboardRow entry={item} sortKey={sortKey} />
+            </View>
           )}
           contentContainerStyle={styles.list}
+          showsVerticalScrollIndicator={false}
         />
       )}
 
-      <Text style={styles.privacyNote}>
+      <Text variant="caption" color="muted" align="center" style={styles.privacyNote}>
         Only your accepted friends are included
       </Text>
-    </View>
+    </FeltBackground>
   );
 }
 
@@ -259,57 +298,41 @@ export default function LeaderboardScreen() {
 // ---------------------------------------------------------------------------
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#1a1a2e" },
-  centered: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    padding: 24,
-  },
-  errorText: { color: "#ff6b6b", fontSize: 16, marginBottom: 12 },
-  retryBtn: {
-    backgroundColor: "#e94560",
-    borderRadius: 8,
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-  },
-  retryText: { color: "#fff", fontWeight: "600" },
-  emptyText: { color: "#888", fontSize: 15 },
-
   // Sort toggle
   sortRow: {
     flexDirection: "row",
-    padding: 12,
-    gap: 8,
+    paddingHorizontal: tokens.spacing.lg,
+    paddingVertical: tokens.spacing.md,
+    gap: tokens.spacing.sm,
   },
   sortBtn: {
     flex: 1,
-    paddingVertical: 8,
-    borderRadius: 8,
-    backgroundColor: "#16213e",
+    paddingVertical: tokens.spacing.sm,
+    borderRadius: tokens.radius.md,
+    backgroundColor: tokens.color.bg.elevated,
     alignItems: "center",
+    borderWidth: 1,
+    borderColor: tokens.color.border.subtle,
   },
-  sortBtnActive: { backgroundColor: "#e94560" },
-  sortBtnText: { color: "#888", fontSize: 12 },
-  sortBtnTextActive: { color: "#fff", fontWeight: "700" },
+  sortBtnActive: {
+    backgroundColor: tokens.color.accent.primary,
+    borderColor: tokens.color.accent.primary,
+  },
 
   // List
-  list: { paddingHorizontal: 12, paddingBottom: 24 },
-  row: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#16213e",
-    borderRadius: 10,
-    padding: 12,
-    marginBottom: 8,
-    gap: 10,
+  list: {
+    paddingHorizontal: tokens.spacing.lg,
+    paddingBottom: tokens.spacing["2xl"],
   },
-  selfRow: {
-    borderWidth: 1,
-    borderColor: "#e94560",
+  rowWrapper: {
+    marginBottom: tokens.spacing.sm,
   },
 
-  // Rank badge
+  // Row internals
+  selfCard: {
+    borderWidth: 1,
+    borderColor: tokens.color.accent.primary,
+  },
   rankBadge: {
     width: 28,
     height: 28,
@@ -317,35 +340,26 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  rankText: { color: "#1a1a2e", fontWeight: "900", fontSize: 13 },
-
-  // Avatar
-  avatar: { width: 40, height: 40, borderRadius: 20 },
-  avatarPlaceholder: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "#e94560",
-    alignItems: "center",
-    justifyContent: "center",
+  rankText: {
+    color: tokens.color.bg.primary,
+    fontSize: 13,
   },
-  avatarInitial: { color: "#fff", fontWeight: "bold", fontSize: 16 },
+  nameBlock: {
+    flex: 1,
+  },
+  statBlock: {
+    alignItems: "flex-end",
+  },
 
-  // Name block
-  nameBlock: { flex: 1 },
-  name: { color: "#fff", fontSize: 14, fontWeight: "600" },
-  subtext: { color: "#666", fontSize: 11, marginTop: 2 },
-
-  // Stat block
-  statBlock: { alignItems: "flex-end" },
-  statValue: { color: "#fff", fontSize: 15, fontWeight: "700" },
-  statLabel: { color: "#666", fontSize: 10, marginTop: 2 },
-
-  // Privacy note
+  // Privacy footer
   privacyNote: {
-    textAlign: "center",
-    color: "#444",
-    fontSize: 11,
-    paddingBottom: 12,
+    paddingBottom: tokens.spacing.md,
+  },
+
+  // Skeleton
+  skeletonContainer: {
+    flex: 1,
+    padding: tokens.spacing.lg,
+    paddingTop: tokens.spacing["2xl"],
   },
 });

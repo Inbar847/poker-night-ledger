@@ -8,27 +8,47 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient, useMutation, useQuery } from "@tanstack/react-query";
-import { useRouter } from "expo-router";
+import { Stack, useRouter } from "expo-router";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import {
-  ActivityIndicator,
-  Image,
   KeyboardAvoidingView,
   Platform,
-  Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
-  Text,
-  TextInput,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { z } from "zod";
 
+import {
+  Avatar,
+  Badge,
+  BottomTabBar,
+  Button,
+  Card,
+  ConfirmDialog,
+  Divider,
+  EmptyState,
+  ErrorState,
+  FeltBackground,
+  Input,
+  Row,
+  Section,
+  Skeleton,
+  Spacer,
+  StatCard,
+  Text,
+  FormField,
+  MoneyAmount,
+} from "@/components";
+import { useUnreadCount } from "@/hooks/useNotifications";
 import { queryKeys } from "@/lib/queryKeys";
 import * as statsService from "@/services/statsService";
 import * as userService from "@/services/userService";
 import { useAuthStore } from "@/store/authStore";
+import { tokens } from "@/theme";
 import type { UserStats } from "@/types/stats";
 import type { User } from "@/types/user";
 
@@ -52,84 +72,113 @@ type EditValues = z.infer<typeof editSchema>;
 // Sub-components
 // ---------------------------------------------------------------------------
 
-// ---------------------------------------------------------------------------
-// Stats section
-// ---------------------------------------------------------------------------
-
-function StatItem({ label, value }: { label: string; value: string }) {
-  return (
-    <View style={styles.statItem}>
-      <Text style={styles.statValue}>{value}</Text>
-      <Text style={styles.statLabel}>{label}</Text>
-    </View>
-  );
-}
-
 function StatsSection({ stats }: { stats: UserStats }) {
   const router = useRouter();
   const net = parseFloat(stats.cumulative_net);
-  const netColor = net > 0 ? "#2ecc71" : net < 0 ? "#e94560" : "#aaa";
-  const netSign = net > 0 ? "+" : "";
+  const avgNet = stats.average_net != null ? parseFloat(stats.average_net) : null;
 
   return (
-    <View style={styles.statsCard}>
-      <View style={styles.statsHeader}>
-        <Text style={styles.statsTitle}>My Stats</Text>
-        <View style={{ flexDirection: "row", gap: 12 }}>
-          <Pressable onPress={() => router.push("/friends")}>
-            <Text style={styles.historyLink}>Friends →</Text>
-          </Pressable>
-          <Pressable onPress={() => router.push("/leaderboard")}>
-            <Text style={styles.historyLink}>Leaderboard →</Text>
-          </Pressable>
-          <Pressable onPress={() => router.push("/history")}>
-            <Text style={styles.historyLink}>History →</Text>
-          </Pressable>
-        </View>
-      </View>
-
-      <View style={styles.statsGrid}>
-        <StatItem label="Games played" value={String(stats.total_games_played)} />
-        <StatItem label="Games hosted" value={String(stats.total_games_hosted)} />
-        <StatItem label="Profitable" value={String(stats.profitable_games)} />
-        <StatItem
-          label="Win rate"
-          value={
-            stats.win_rate != null
-              ? `${(stats.win_rate * 100).toFixed(0)}%`
-              : "—"
-          }
+    <Section
+      title="My Stats"
+      action={
+        <Button
+          label="History"
+          variant="ghost"
+          size="md"
+          onPress={() => router.push("/history")}
         />
-      </View>
-
-      <View style={styles.netRow}>
-        <Text style={styles.netLabel}>Cumulative net</Text>
-        <Text style={[styles.netValue, { color: netColor }]}>
-          {stats.games_with_result > 0
-            ? `${netSign}${Math.abs(net).toFixed(2)}`
-            : "—"}
-        </Text>
-      </View>
-
-      {stats.average_net != null ? (
-        <View style={styles.netRow}>
-          <Text style={styles.netLabel}>Avg per game</Text>
-          <Text style={styles.netAvg}>
-            {parseFloat(stats.average_net) >= 0 ? "+" : ""}
-            {parseFloat(stats.average_net).toFixed(2)}
-          </Text>
+      }
+    >
+      {/* Hero net result card */}
+      <Card variant="prominent" padding="comfortable">
+        <View style={styles.netHero}>
+          <Text variant="caption" color="secondary">Cumulative net</Text>
+          <Spacer size="xs" />
+          {stats.games_with_result > 0 ? (
+            <MoneyAmount amount={net} size="lg" showSign />
+          ) : (
+            <Text variant="numericLarge" color="secondary">{"\u2014"}</Text>
+          )}
         </View>
-      ) : null}
-    </View>
+        {avgNet != null && (
+          <>
+            <Divider subtle spacing={tokens.spacing.sm} />
+            <Row justify="between" align="center">
+              <Text variant="caption" color="secondary">Avg per game</Text>
+              <MoneyAmount amount={avgNet} size="sm" showSign />
+            </Row>
+          </>
+        )}
+      </Card>
+
+      <Spacer size="base" />
+
+      {/* Stats grid */}
+      <View style={styles.statsGrid}>
+        <View style={styles.statHalf}>
+          <StatCard
+            label="Games played"
+            value={String(stats.total_games_played)}
+          />
+        </View>
+        <View style={styles.statHalf}>
+          <StatCard
+            label="Games hosted"
+            value={String(stats.total_games_hosted)}
+          />
+        </View>
+        <View style={styles.statHalf}>
+          <StatCard
+            label="Profitable"
+            value={String(stats.profitable_games)}
+            valueColor="positive"
+          />
+        </View>
+        <View style={styles.statHalf}>
+          <StatCard
+            label="Win rate"
+            value={
+              stats.win_rate != null
+                ? `${(stats.win_rate * 100).toFixed(0)}%`
+                : "\u2014"
+            }
+          />
+        </View>
+      </View>
+
+      <Spacer size="base" />
+
+      {/* Quick links */}
+      <Row gap="md">
+        <View style={styles.linkHalf}>
+          <Button
+            label="Friends"
+            variant="secondary"
+            fullWidth
+            onPress={() => router.push("/friends")}
+          />
+        </View>
+        <View style={styles.linkHalf}>
+          <Button
+            label="Leaderboard"
+            variant="secondary"
+            fullWidth
+            onPress={() => router.push("/leaderboard")}
+          />
+        </View>
+      </Row>
+    </Section>
   );
 }
 
-function ProfileRow({ label, value }: { label: string; value?: string | null }) {
+function ProfileInfoCard({ label, value }: { label: string; value?: string | null }) {
   return (
-    <View style={styles.row}>
-      <Text style={styles.rowLabel}>{label}</Text>
-      <Text style={styles.rowValue}>{value || "—"}</Text>
-    </View>
+    <Row justify="between" align="center" style={styles.profileRow}>
+      <Text variant="captionBold" color="secondary">{label}</Text>
+      <Text variant="body" numberOfLines={1} style={styles.profileRowValue}>
+        {value || "\u2014"}
+      </Text>
+    </Row>
   );
 }
 
@@ -184,92 +233,125 @@ function EditForm({
     <KeyboardAvoidingView
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
-      {mutation.error ? (
-        <View style={styles.errorBanner}>
-          <Text style={styles.errorBannerText}>
-            {mutation.error instanceof Error
-              ? mutation.error.message
-              : "Update failed"}
-          </Text>
-        </View>
-      ) : null}
-
-      <View style={styles.field}>
-        <Text style={styles.label}>Full name</Text>
-        <TextInput
-          style={[styles.input, errors.full_name && styles.inputError]}
-          placeholder="Your name"
-          placeholderTextColor="#666"
-          value={fullName}
-          onChangeText={(v) =>
-            setValue("full_name", v, { shouldValidate: true })
-          }
-        />
-        {errors.full_name ? (
-          <Text style={styles.fieldError}>{errors.full_name.message}</Text>
+      <Section title="Edit Profile">
+        {mutation.error ? (
+          <>
+            <Card variant="default" padding="compact" style={styles.errorBanner}>
+              <Text variant="caption" color="negative">
+                {mutation.error instanceof Error
+                  ? mutation.error.message
+                  : "Update failed"}
+              </Text>
+            </Card>
+            <Spacer size="md" />
+          </>
         ) : null}
-      </View>
 
-      <View style={styles.field}>
-        <Text style={styles.label}>Phone</Text>
-        <TextInput
-          style={[styles.input, errors.phone && styles.inputError]}
-          placeholder="+1 555 000 0000"
-          placeholderTextColor="#666"
-          keyboardType="phone-pad"
-          value={phone}
-          onChangeText={(v) => setValue("phone", v, { shouldValidate: true })}
-        />
-        {errors.phone ? (
-          <Text style={styles.fieldError}>{errors.phone.message}</Text>
-        ) : null}
-      </View>
+        <FormField label="Full name" error={errors.full_name?.message}>
+          <Input
+            placeholder="Your name"
+            value={fullName}
+            onChangeText={(v: string) =>
+              setValue("full_name", v, { shouldValidate: true })
+            }
+            error={errors.full_name?.message}
+          />
+        </FormField>
 
-      <View style={styles.field}>
-        <Text style={styles.label}>Profile image URL</Text>
-        <TextInput
-          style={[styles.input, errors.profile_image_url && styles.inputError]}
-          placeholder="https://example.com/avatar.jpg"
-          placeholderTextColor="#666"
-          autoCapitalize="none"
-          keyboardType="url"
-          value={imageUrl}
-          onChangeText={(v) =>
-            setValue("profile_image_url", v, { shouldValidate: true })
-          }
-        />
-        {errors.profile_image_url ? (
-          <Text style={styles.fieldError}>
-            {errors.profile_image_url.message}
-          </Text>
-        ) : null}
-      </View>
+        <FormField label="Phone" error={errors.phone?.message}>
+          <Input
+            placeholder="+1 555 000 0000"
+            keyboardType="phone-pad"
+            value={phone}
+            onChangeText={(v: string) => setValue("phone", v, { shouldValidate: true })}
+            error={errors.phone?.message}
+          />
+        </FormField>
 
-      <View style={styles.actionRow}>
-        <Pressable
-          style={[styles.btnSecondary, { flex: 1, marginRight: 8 }]}
-          onPress={onCancel}
-          disabled={mutation.isPending}
-        >
-          <Text style={styles.btnSecondaryText}>Cancel</Text>
-        </Pressable>
-        <Pressable
-          style={[
-            styles.btnPrimary,
-            { flex: 1, marginLeft: 8 },
-            mutation.isPending && styles.btnDisabled,
-          ]}
-          onPress={handleSubmit(onSubmit)}
-          disabled={mutation.isPending}
-        >
-          {mutation.isPending ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <Text style={styles.btnPrimaryText}>Save</Text>
-          )}
-        </Pressable>
-      </View>
+        <FormField label="Profile image URL" error={errors.profile_image_url?.message}>
+          <Input
+            placeholder="https://example.com/avatar.jpg"
+            autoCapitalize="none"
+            keyboardType="url"
+            value={imageUrl}
+            onChangeText={(v: string) =>
+              setValue("profile_image_url", v, { shouldValidate: true })
+            }
+            error={errors.profile_image_url?.message}
+          />
+        </FormField>
+
+        <Spacer size="base" />
+
+        <Row gap="md">
+          <View style={styles.actionHalf}>
+            <Button
+              label="Cancel"
+              variant="secondary"
+              fullWidth
+              onPress={onCancel}
+              disabled={mutation.isPending}
+            />
+          </View>
+          <View style={styles.actionHalf}>
+            <Button
+              label="Save"
+              variant="primary"
+              fullWidth
+              loading={mutation.isPending}
+              disabled={mutation.isPending}
+              onPress={handleSubmit(onSubmit)}
+            />
+          </View>
+        </Row>
+      </Section>
     </KeyboardAvoidingView>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Loading skeleton
+// ---------------------------------------------------------------------------
+
+function ProfileSkeleton() {
+  return (
+    <View>
+      {/* Avatar hero */}
+      <Card variant="prominent" padding="comfortable">
+        <View style={styles.centered}>
+          <Skeleton width={80} height={80} circle />
+          <Spacer size="md" />
+          <Skeleton width={160} height={22} />
+          <Spacer size="sm" />
+          <Skeleton width={200} height={14} />
+        </View>
+      </Card>
+      <Spacer size="xl" />
+
+      {/* Details card */}
+      <Skeleton height={160} radius={tokens.radius.lg} />
+      <Spacer size="xl" />
+
+      {/* Stats */}
+      <Skeleton width={100} height={18} />
+      <Spacer size="md" />
+      <Skeleton height={100} radius={tokens.radius.xl} />
+      <Spacer size="base" />
+      <View style={styles.statsGrid}>
+        <View style={styles.statHalf}>
+          <Skeleton height={80} radius={tokens.radius.lg} />
+        </View>
+        <View style={styles.statHalf}>
+          <Skeleton height={80} radius={tokens.radius.lg} />
+        </View>
+        <View style={styles.statHalf}>
+          <Skeleton height={80} radius={tokens.radius.lg} />
+        </View>
+        <View style={styles.statHalf}>
+          <Skeleton height={80} radius={tokens.radius.lg} />
+        </View>
+      </View>
+    </View>
   );
 }
 
@@ -279,9 +361,12 @@ function EditForm({
 
 export default function ProfileScreen() {
   const [isEditing, setIsEditing] = useState(false);
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+  const router = useRouter();
   const userId = useAuthStore((s) => s.userId) ?? "";
+  const clearAuth = useAuthStore((s) => s.clearAuth);
 
-  const { data: user, isLoading, error, refetch } = useQuery({
+  const { data: user, isLoading, error, refetch, isRefetching } = useQuery({
     queryKey: queryKeys.me(userId),
     queryFn: userService.getMe,
   });
@@ -291,78 +376,149 @@ export default function ProfileScreen() {
     queryFn: statsService.getStats,
   });
 
-  if (isLoading) {
-    return (
-      <View style={styles.centered}>
-        <ActivityIndicator size="large" color="#e94560" />
-      </View>
-    );
-  }
+  const { data: unreadData } = useUnreadCount();
+  const unreadCount = unreadData?.count ?? 0;
+  const insets = useSafeAreaInsets();
 
-  if (error || !user) {
-    return (
-      <View style={styles.centered}>
-        <Text style={styles.errorText}>Failed to load profile</Text>
-        <Pressable style={[styles.btnPrimary, { marginTop: 16 }]} onPress={() => refetch()}>
-          <Text style={styles.btnPrimaryText}>Try again</Text>
-        </Pressable>
-      </View>
-    );
-  }
+  const handleTabPress = (key: string) => {
+    if (key === "profile") return; // already here
+    if (key === "home") router.push("/games");
+    if (key === "notifications") router.push("/notifications");
+  };
 
-  return (
-    <ScrollView
-      style={styles.flex}
-      contentContainerStyle={styles.container}
-      keyboardShouldPersistTaps="handled"
-    >
-      {/* Avatar */}
-      {user.profile_image_url ? (
-        <Image
-          source={{ uri: user.profile_image_url }}
-          style={styles.avatar}
-          resizeMode="cover"
+  const renderContent = () => {
+    if (isLoading) {
+      return <ProfileSkeleton />;
+    }
+
+    if (error || !user) {
+      return (
+        <ErrorState
+          message="Failed to load profile"
+          onRetry={() => void refetch()}
         />
-      ) : (
-        <View style={styles.avatarPlaceholder}>
-          <Text style={styles.avatarInitial}>
-            {(user.full_name ?? user.email).charAt(0).toUpperCase()}
-          </Text>
-        </View>
-      )}
+      );
+    }
 
-      <Text style={styles.name}>{user.full_name ?? "—"}</Text>
-      <Text style={styles.email}>{user.email}</Text>
+    return (
+      <>
+        {/* Avatar & Identity hero */}
+        <Card variant="prominent" padding="comfortable">
+          <View style={styles.centered}>
+            <Avatar
+              uri={user.profile_image_url}
+              name={user.full_name ?? user.email}
+              size="lg"
+            />
+            <Spacer size="md" />
+            <Text variant="h2" align="center">{user.full_name ?? "\u2014"}</Text>
+            <Spacer size="xs" />
+            <Text variant="caption" color="secondary" align="center">
+              {user.email}
+            </Text>
+          </View>
+        </Card>
 
-      {isEditing ? (
-        <View style={styles.editSection}>
+        <Spacer size="xl" />
+
+        {isEditing ? (
           <EditForm
             user={user}
             userId={userId}
             onCancel={() => setIsEditing(false)}
             onSaved={() => setIsEditing(false)}
           />
-        </View>
-      ) : (
-        <>
-          <View style={styles.card}>
-            <ProfileRow label="Email" value={user.email} />
-            <ProfileRow label="Full name" value={user.full_name} />
-            <ProfileRow label="Phone" value={user.phone} />
-            <ProfileRow label="Image URL" value={user.profile_image_url} />
+        ) : (
+          <>
+            {/* Profile Details Card */}
+            <Section title="Details">
+              <Card variant="default" padding="comfortable">
+                <ProfileInfoCard label="Email" value={user.email} />
+                <Divider subtle spacing={tokens.spacing.sm} />
+                <ProfileInfoCard label="Full name" value={user.full_name} />
+                <Divider subtle spacing={tokens.spacing.sm} />
+                <ProfileInfoCard label="Phone" value={user.phone} />
+                <Divider subtle spacing={tokens.spacing.sm} />
+                <ProfileInfoCard label="Image URL" value={user.profile_image_url} />
+              </Card>
+            </Section>
+
+            {/* Stats */}
+            {stats ? <StatsSection stats={stats} /> : null}
+
+            {/* Actions */}
+            <Section>
+              <Button
+                label="Edit Profile"
+                variant="primary"
+                fullWidth
+                onPress={() => setIsEditing(true)}
+              />
+              <Spacer size="md" />
+              <Button
+                label="Log Out"
+                variant="destructive"
+                fullWidth
+                onPress={() => setShowLogoutConfirm(true)}
+              />
+            </Section>
+          </>
+        )}
+      </>
+    );
+  };
+
+  return (
+    <FeltBackground>
+      <Stack.Screen options={{ headerShown: false }} />
+
+      <View style={styles.main}>
+        <ScrollView
+          style={styles.flex}
+          contentContainerStyle={[
+            styles.scrollContent,
+            { paddingTop: insets.top + tokens.spacing.base },
+          ]}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+          refreshControl={
+            !isEditing ? (
+              <RefreshControl
+                refreshing={isRefetching}
+                onRefresh={refetch}
+                tintColor={tokens.color.accent.primary}
+                progressViewOffset={insets.top}
+              />
+            ) : undefined
+          }
+        >
+          <View style={styles.headerRow}>
+            <Text variant="h1">Profile</Text>
           </View>
+          {renderContent()}
+          <Spacer size="4xl" />
+        </ScrollView>
+      </View>
 
-          {stats ? <StatsSection stats={stats} /> : null}
+      <BottomTabBar
+        activeTab="profile"
+        onTabPress={handleTabPress}
+        notificationCount={unreadCount}
+      />
 
-          <Pressable
-            style={styles.btnPrimary}
-            onPress={() => setIsEditing(true)}
-          >
-            <Text style={styles.btnPrimaryText}>Edit profile</Text>
-          </Pressable>
-        </>
-      )}
-    </ScrollView>
+      <ConfirmDialog
+        visible={showLogoutConfirm}
+        title="Log Out"
+        message="Are you sure you want to log out?"
+        confirmLabel="Log Out"
+        confirmVariant="destructive"
+        onCancel={() => setShowLogoutConfirm(false)}
+        onConfirm={async () => {
+          setShowLogoutConfirm(false);
+          await clearAuth();
+        }}
+      />
+    </FeltBackground>
   );
 }
 
@@ -371,145 +527,54 @@ export default function ProfileScreen() {
 // ---------------------------------------------------------------------------
 
 const styles = StyleSheet.create({
-  flex: { flex: 1 },
   container: {
-    padding: 24,
-    alignItems: "center",
-    paddingBottom: 48,
+    flex: 1,
+  },
+  flex: {
+    flex: 1,
+  },
+  main: {
+    flex: 1,
+  },
+  scrollContent: {
+    paddingHorizontal: tokens.spacing.lg,
+    paddingBottom: tokens.spacing["4xl"],
+  },
+  headerRow: {
+    paddingBottom: tokens.spacing.lg,
   },
   centered: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    padding: 24,
-  },
-  avatar: {
-    width: 96,
-    height: 96,
-    borderRadius: 48,
-    marginBottom: 16,
-  },
-  avatarPlaceholder: {
-    width: 96,
-    height: 96,
-    borderRadius: 48,
-    backgroundColor: "#e94560",
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 16,
-  },
-  avatarInitial: {
-    fontSize: 36,
-    fontWeight: "bold",
-    color: "#fff",
-  },
-  name: {
-    fontSize: 22,
-    fontWeight: "bold",
-    color: "#ffffff",
-    marginBottom: 4,
-  },
-  email: {
-    fontSize: 14,
-    color: "#888",
-    marginBottom: 24,
-  },
-  card: {
-    backgroundColor: "#16213e",
-    borderRadius: 12,
-    padding: 16,
-    width: "100%",
-    marginBottom: 20,
-  },
-  row: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: "#2a2a5a",
-  },
-  rowLabel: { color: "#888", fontSize: 14 },
-  rowValue: { color: "#fff", fontSize: 14, flex: 1, textAlign: "right" },
-  editSection: { width: "100%" },
-  field: { marginBottom: 16, width: "100%" },
-  label: { color: "#cccccc", fontSize: 14, marginBottom: 6 },
-  input: {
-    backgroundColor: "#16213e",
-    borderWidth: 1,
-    borderColor: "#2a2a5a",
-    borderRadius: 8,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    color: "#ffffff",
-    fontSize: 16,
-  },
-  inputError: { borderColor: "#e94560" },
-  fieldError: { color: "#e94560", fontSize: 12, marginTop: 4 },
-  actionRow: { flexDirection: "row", marginTop: 8 },
-  btnPrimary: {
-    backgroundColor: "#e94560",
-    borderRadius: 8,
-    paddingVertical: 14,
-    alignItems: "center",
-    width: "100%",
-  },
-  btnPrimaryText: { color: "#ffffff", fontSize: 15, fontWeight: "600" },
-  btnSecondary: {
-    backgroundColor: "#2a2a5a",
-    borderRadius: 8,
-    paddingVertical: 14,
     alignItems: "center",
   },
-  btnSecondaryText: { color: "#cccccc", fontSize: 15 },
-  btnDisabled: { opacity: 0.6 },
-  errorBanner: {
-    backgroundColor: "#4a1020",
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 16,
-    width: "100%",
-  },
-  errorBannerText: { color: "#ff6b6b", fontSize: 14 },
-  errorText: { color: "#ff6b6b", fontSize: 16 },
-  // Stats section
-  statsCard: {
-    backgroundColor: "#16213e",
-    borderRadius: 12,
-    padding: 16,
-    width: "100%",
-    marginBottom: 20,
-  },
-  statsHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
+  netHero: {
     alignItems: "center",
-    marginBottom: 14,
+    paddingVertical: tokens.spacing.sm,
   },
-  statsTitle: { color: "#fff", fontSize: 15, fontWeight: "700" },
-  historyLink: { color: "#e94560", fontSize: 13 },
   statsGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 12,
-    marginBottom: 14,
+    gap: tokens.spacing.md,
   },
-  statItem: {
-    width: "45%",
-    backgroundColor: "#1a1a3e",
-    borderRadius: 8,
-    padding: 12,
-    alignItems: "center",
+  statHalf: {
+    width: "47%",
+    flexGrow: 1,
   },
-  statValue: { color: "#fff", fontSize: 20, fontWeight: "700", marginBottom: 4 },
-  statLabel: { color: "#888", fontSize: 11 },
-  netRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    paddingVertical: 6,
-    borderTopWidth: 1,
-    borderTopColor: "#2a2a5a",
+  linkHalf: {
+    flex: 1,
   },
-  netLabel: { color: "#888", fontSize: 13 },
-  netValue: { fontSize: 15, fontWeight: "700" },
-  netAvg: { color: "#aaa", fontSize: 13 },
+  actionHalf: {
+    flex: 1,
+  },
+  profileRow: {
+    paddingVertical: tokens.spacing.sm,
+  },
+  profileRowValue: {
+    flex: 1,
+    textAlign: "right",
+    marginLeft: tokens.spacing.base,
+  },
+  errorBanner: {
+    borderWidth: 1,
+    borderColor: tokens.color.semantic.negative,
+  },
 });

@@ -4,172 +4,170 @@
  * Tap a game card to open the historical settlement detail.
  */
 
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Stack, useRouter } from "expo-router";
 import {
-  ActivityIndicator,
+  Alert,
   FlatList,
-  Pressable,
+  RefreshControl,
   StyleSheet,
-  Text,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import {
+  EmptyState,
+  ErrorState,
+  FeltBackground,
+  GameCard,
+  SwipeableGameRow,
+  Skeleton,
+  Spacer,
+  Text,
+} from "@/components";
+import * as gameService from "@/services/gameService";
 import { queryKeys } from "@/lib/queryKeys";
 import * as statsService from "@/services/statsService";
 import { useAuthStore } from "@/store/authStore";
+import { tokens } from "@/theme";
 import type { GameHistoryItem } from "@/types/stats";
 
-function netColor(net: string | null): string {
-  if (net == null) return "#888";
-  const v = parseFloat(net);
-  if (v > 0) return "#2ecc71";
-  if (v < 0) return "#e94560";
-  return "#aaa";
+function formatDate(iso: string): string {
+  try {
+    return new Date(iso).toLocaleDateString("en-US", {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+    });
+  } catch {
+    return iso;
+  }
 }
 
-function fmtNet(net: string | null, currency: string): string {
-  if (net == null) return "—";
-  const v = parseFloat(net);
-  const sign = v > 0 ? "+" : "";
-  return `${sign}${currency} ${Math.abs(v).toFixed(2)}`;
-}
-
-function HistoryCard({
-  item,
-  onPress,
-}: {
-  item: GameHistoryItem;
-  onPress: () => void;
-}) {
-  const date = new Date(item.closed_at).toLocaleDateString(undefined, {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  });
-
+function HistorySkeleton() {
   return (
-    <Pressable style={styles.card} onPress={onPress}>
-      <View style={styles.cardRow}>
-        <Text style={styles.cardTitle} numberOfLines={1}>
-          {item.title}
-        </Text>
-        <Text style={[styles.cardNet, { color: netColor(item.net_balance) }]}>
-          {fmtNet(item.net_balance, item.currency)}
-        </Text>
-      </View>
-      <View style={styles.cardMeta}>
-        <Text style={styles.cardDate}>{date}</Text>
-        <View style={styles.roleBadge}>
-          <Text style={styles.roleBadgeText}>
-            {item.role_in_game.toUpperCase()}
-          </Text>
+    <View style={styles.skeletonContainer}>
+      <Skeleton width={140} height={18} />
+      <Spacer size="md" />
+      {[1, 2, 3, 4, 5].map((i) => (
+        <View key={i}>
+          <Skeleton height={80} radius={tokens.radius.lg} />
+          <Spacer size="md" />
         </View>
-        <Text style={styles.cardBuyIn}>
-          in: {item.currency} {parseFloat(item.total_buy_ins).toFixed(2)}
-        </Text>
-      </View>
-    </Pressable>
+      ))}
+    </View>
   );
 }
 
 export default function HistoryScreen() {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const userId = useAuthStore((s) => s.userId) ?? "";
 
-  const { data: items, isLoading, error, refetch } = useQuery({
+  const { data: items, isLoading, error, refetch, isRefetching } = useQuery({
     queryKey: queryKeys.history(userId),
     queryFn: statsService.getHistory,
   });
 
+  const hideMutation = useMutation({
+    mutationFn: (gameId: string) => gameService.hideGame(gameId),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.history(userId) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.games(userId) });
+    },
+    onError: (err) => {
+      Alert.alert(
+        "Error",
+        err instanceof Error ? err.message : "Failed to hide game",
+      );
+    },
+  });
+
+  const gameCount = items?.length ?? 0;
+
   return (
-    <>
+    <FeltBackground>
       <Stack.Screen options={{ title: "My History" }} />
-      <View style={styles.container}>
-        {isLoading ? (
-          <ActivityIndicator size="large" color="#e94560" style={styles.loader} />
-        ) : error ? (
-          <View style={styles.centered}>
-            <Text style={styles.errorText}>Failed to load history</Text>
-            <Pressable
-              style={[styles.btn, styles.btnPrimary, { marginTop: 12 }]}
-              onPress={() => void refetch()}
-            >
-              <Text style={styles.btnText}>Retry</Text>
-            </Pressable>
-          </View>
-        ) : items && items.length === 0 ? (
-          <View style={styles.centered}>
-            <Text style={styles.emptyText}>No completed games yet.</Text>
-            <Text style={styles.emptySubText}>
-              Closed games will appear here.
-            </Text>
-          </View>
-        ) : (
-          <FlatList
-            data={items}
-            keyExtractor={(g) => g.game_id}
-            renderItem={({ item }) => (
-              <HistoryCard
-                item={item}
-                onPress={() => router.push(`/history/${item.game_id}`)}
-              />
-            )}
-            contentContainerStyle={{ paddingBottom: 40 }}
-          />
-        )}
-      </View>
-    </>
+
+      {isLoading ? (
+        <HistorySkeleton />
+      ) : error ? (
+        <ErrorState
+          message="Failed to load history"
+          onRetry={() => void refetch()}
+        />
+      ) : (
+        <FlatList
+          data={items}
+          keyExtractor={(g) => g.game_id}
+          contentContainerStyle={styles.listContent}
+          showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={isRefetching}
+              onRefresh={refetch}
+              tintColor={tokens.color.accent.primary}
+            />
+          }
+          ListHeaderComponent={
+            gameCount > 0 ? (
+              <View style={styles.listHeader}>
+                <Text variant="caption" color="secondary">
+                  {gameCount} completed {gameCount === 1 ? "game" : "games"}
+                </Text>
+                <Spacer size="base" />
+              </View>
+            ) : null
+          }
+          renderItem={({ item }) => {
+            const net =
+              item.net_balance != null ? parseFloat(item.net_balance) : null;
+
+            return (
+              <View style={styles.cardWrapper}>
+                <SwipeableGameRow
+                  onHide={() => hideMutation.mutate(item.game_id)}
+                >
+                  <GameCard
+                    title={item.title}
+                    date={formatDate(item.closed_at)}
+                    status="closed"
+                    netResult={net ?? undefined}
+                    currency={item.currency}
+                    onPress={() => router.push(`/history/${item.game_id}`)}
+                  />
+                </SwipeableGameRow>
+              </View>
+            );
+          }}
+          ListEmptyComponent={
+            <EmptyState
+              title="No completed games yet"
+              description="Closed games will appear here"
+            />
+          }
+        />
+      )}
+    </FeltBackground>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 16 },
-  loader: { marginTop: 48 },
-  centered: { flex: 1, alignItems: "center", justifyContent: "center" },
-  errorText: { color: "#ff6b6b", fontSize: 15 },
-  emptyText: { color: "#fff", fontSize: 16, fontWeight: "600" },
-  emptySubText: {
-    color: "#888",
-    fontSize: 13,
-    marginTop: 6,
-    textAlign: "center",
-  },
-  card: {
-    backgroundColor: "#16213e",
-    borderRadius: 10,
-    padding: 14,
-    marginBottom: 10,
-  },
-  cardRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 6,
-  },
-  cardTitle: {
-    color: "#fff",
-    fontSize: 15,
-    fontWeight: "600",
+  container: {
     flex: 1,
-    marginRight: 8,
   },
-  cardNet: { fontSize: 15, fontWeight: "700" },
-  cardMeta: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
+  listContent: {
+    padding: tokens.spacing.lg,
+    paddingBottom: tokens.spacing["4xl"],
+    flexGrow: 1,
   },
-  cardDate: { color: "#888", fontSize: 12 },
-  roleBadge: {
-    backgroundColor: "#2a2a5a",
-    borderRadius: 4,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
+  listHeader: {
+    marginBottom: tokens.spacing.xs,
   },
-  roleBadgeText: { color: "#aaa", fontSize: 10, fontWeight: "700" },
-  cardBuyIn: { color: "#666", fontSize: 12 },
-  btn: { borderRadius: 8, paddingVertical: 13, alignItems: "center" },
-  btnPrimary: { backgroundColor: "#e94560", paddingHorizontal: 24 },
-  btnText: { color: "#fff", fontSize: 14, fontWeight: "600" },
+  cardWrapper: {
+    marginBottom: tokens.spacing.md,
+  },
+  skeletonContainer: {
+    padding: tokens.spacing.lg,
+  },
 });

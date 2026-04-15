@@ -3,123 +3,234 @@
  *
  * Shows:
  *  - Per-participant balance breakdown (buy-ins, poker result, expense balance, net)
- *  - Optimized transfer list (who pays whom)
+ *  - Optimized transfer list (who pays whom) — hero element
  *  - Warning banner if any participant is missing a final stack
+ *  - Dealer retroactive edit entry points for closed games
  */
 
 import { useQuery } from "@tanstack/react-query";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
+import { Pressable, StyleSheet, View } from "react-native";
+
 import {
-  ActivityIndicator,
-  Pressable,
-  ScrollView,
-  StyleSheet,
+  Screen,
+  ScreenHeader,
+  Section,
+  Card,
   Text,
-  View,
-} from "react-native";
+  MoneyAmount,
+  TransferRow,
+  Badge,
+  Button,
+  Divider,
+  Spacer,
+  Skeleton,
+  EmptyState,
+  ErrorState,
+  Row,
+  currencySymbol,
+} from "@/components";
 
 import { queryKeys } from "@/lib/queryKeys";
 import * as gameService from "@/services/gameService";
 import * as settlementService from "@/services/settlementService";
 import * as userService from "@/services/userService";
 import { useAuthStore } from "@/store/authStore";
+import { tokens } from "@/theme";
 import type { ParticipantBalance, Transfer } from "@/types/game";
 
-function fmt(v: string | null | undefined, fallback = "—"): string {
-  if (v == null) return fallback;
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function parseNum(v: string | null | undefined): number {
+  if (v == null) return 0;
   const n = parseFloat(v);
-  return isNaN(n) ? fallback : (n >= 0 ? "+" : "") + n.toFixed(2);
+  return isNaN(n) ? 0 : n;
 }
 
-function fmtAbs(v: string | null | undefined): string {
-  if (v == null) return "—";
-  return parseFloat(v).toFixed(2);
-}
+// ---------------------------------------------------------------------------
+// Loading skeleton
+// ---------------------------------------------------------------------------
 
-function BalanceCard({ balance, currency }: { balance: ParticipantBalance; currency: string }) {
-  // Show adjusted_net_balance as the headline (equals net_balance when no shortage)
-  const displayNet = balance.adjusted_net_balance ?? balance.net_balance;
-  const netColor =
-    displayNet == null
-      ? "#888"
-      : parseFloat(displayNet) >= 0
-        ? "#2ecc71"
-        : "#e94560";
-  const hasShortageShare =
-    balance.shortage_share != null && parseFloat(balance.shortage_share) > 0;
-
+function SettlementSkeleton() {
   return (
-    <View style={styles.card}>
-      <View style={styles.cardHeaderRow}>
-        <Text style={styles.cardName}>{balance.display_name}</Text>
-        <Text style={[styles.netBalance, { color: netColor }]}>
-          {displayNet != null ? `${fmt(displayNet)} ${currency}` : "—"}
-        </Text>
-      </View>
-
-      <View style={styles.cardDetails}>
-        <Row
-          label="Buy-ins"
-          value={`−${fmtAbs(balance.total_buy_ins)} ${currency}`}
-          color="#e94560"
-        />
-        {balance.final_chip_cash_value != null ? (
-          <Row
-            label="Chip cash value"
-            value={`+${fmtAbs(balance.final_chip_cash_value)} ${currency}`}
-            color="#2ecc71"
-          />
-        ) : (
-          <Row label="Final chips" value="(missing)" color="#888" />
-        )}
-        {parseFloat(balance.expense_balance) !== 0 ? (
-          <Row
-            label="Expense balance"
-            value={`${fmt(balance.expense_balance)} ${currency}`}
-            color={parseFloat(balance.expense_balance) >= 0 ? "#2ecc71" : "#f0a500"}
-          />
-        ) : null}
-        {hasShortageShare ? (
-          <Row
-            label="Shortage absorbed"
-            value={`−${fmtAbs(balance.shortage_share)} ${currency}`}
-            color="#f0a500"
-          />
-        ) : null}
-      </View>
-    </View>
+    <Screen scrollable>
+      <Spacer size="base" />
+      {/* Transfer hero skeleton */}
+      <Skeleton width={160} height={20} />
+      <Spacer size="md" />
+      {[1, 2, 3].map((i) => (
+        <View key={i} style={skeletonStyles.transferRow}>
+          <Skeleton width={80} height={16} />
+          <Skeleton width={24} height={16} />
+          <Skeleton width={80} height={16} />
+          <View style={{ flex: 1 }} />
+          <Skeleton width={60} height={20} />
+        </View>
+      ))}
+      <Spacer size="2xl" />
+      {/* Balance cards skeleton */}
+      <Skeleton width={100} height={18} />
+      <Spacer size="md" />
+      {[1, 2, 3].map((i) => (
+        <View key={i} style={{ marginBottom: tokens.spacing.md }}>
+          <Skeleton width="100%" height={100} radius={tokens.radius.lg} />
+        </View>
+      ))}
+    </Screen>
   );
 }
 
-function Row({
+// ---------------------------------------------------------------------------
+// Balance detail row (within a participant card)
+// ---------------------------------------------------------------------------
+
+function DetailRow({
   label,
-  value,
-  color,
+  amount,
+  currency,
+  colorOverride,
 }: {
   label: string;
-  value: string;
-  color: string;
+  amount: number;
+  currency: string;
+  colorOverride?: "warning";
 }) {
+  const color =
+    colorOverride === "warning"
+      ? "warning"
+      : amount > 0
+        ? "positive"
+        : amount < 0
+          ? "negative"
+          : "secondary";
+
   return (
-    <View style={styles.detailRow}>
-      <Text style={styles.detailLabel}>{label}</Text>
-      <Text style={[styles.detailValue, { color }]}>{value}</Text>
-    </View>
+    <Row justify="between" style={detailStyles.row}>
+      <Text variant="caption" color="secondary">
+        {label}
+      </Text>
+      <MoneyAmount amount={amount} currency={currency} size="sm" showSign />
+    </Row>
   );
 }
 
-function TransferRow({ transfer, currency }: { transfer: Transfer; currency: string }) {
+// ---------------------------------------------------------------------------
+// Participant balance card
+// ---------------------------------------------------------------------------
+
+function BalanceCard({
+  balance,
+  currency,
+}: {
+  balance: ParticipantBalance;
+  currency: string;
+}) {
+  const displayNet = parseNum(balance.adjusted_net_balance ?? balance.net_balance);
+  const totalBuyIns = parseNum(balance.total_buy_ins);
+  const chipCashValue = balance.final_chip_cash_value != null
+    ? parseNum(balance.final_chip_cash_value)
+    : null;
+  const expenseBalance = parseNum(balance.expense_balance);
+  const shortageShare = parseNum(balance.shortage_share);
+
   return (
-    <View style={styles.transferRow}>
-      <Text style={styles.transferFrom}>{transfer.from_display_name}</Text>
-      <Text style={styles.transferArrow}> → </Text>
-      <Text style={styles.transferTo}>{transfer.to_display_name}</Text>
-      <Text style={styles.transferAmount}>
-        {currency} {fmtAbs(transfer.amount)}
-      </Text>
-    </View>
+    <Card style={cardStyles.card}>
+      <Row justify="between" align="center">
+        <Text variant="bodyBold" numberOfLines={1} style={cardStyles.name}>
+          {balance.display_name}
+        </Text>
+        <MoneyAmount amount={displayNet} currency={currency} size="md" showSign />
+      </Row>
+
+      <Spacer size="sm" />
+      <Divider subtle />
+      <Spacer size="sm" />
+
+      <View style={cardStyles.details}>
+        <DetailRow
+          label="Buy-ins"
+          amount={-totalBuyIns}
+          currency={currency}
+        />
+        {chipCashValue != null ? (
+          <DetailRow
+            label="Chip cash value"
+            amount={chipCashValue}
+            currency={currency}
+          />
+        ) : (
+          <Row justify="between" style={detailStyles.row}>
+            <Text variant="caption" color="secondary">
+              Final chips
+            </Text>
+            <Text variant="captionBold" color="muted">
+              (missing)
+            </Text>
+          </Row>
+        )}
+        {expenseBalance !== 0 && (
+          <DetailRow
+            label="Expense balance"
+            amount={expenseBalance}
+            currency={currency}
+          />
+        )}
+        {shortageShare > 0 && (
+          <DetailRow
+            label="Shortage absorbed"
+            amount={-shortageShare}
+            currency={currency}
+            colorOverride="warning"
+          />
+        )}
+      </View>
+    </Card>
   );
 }
+
+// ---------------------------------------------------------------------------
+// Transfer hero section
+// ---------------------------------------------------------------------------
+
+function TransferHero({
+  transfers,
+  currency,
+}: {
+  transfers: Transfer[];
+  currency: string;
+}) {
+  if (transfers.length === 0) {
+    return (
+      <Card variant="prominent" padding="comfortable" style={heroStyles.card}>
+        <Text variant="body" color="secondary" align="center">
+          No transfers needed — everyone is settled.
+        </Text>
+      </Card>
+    );
+  }
+
+  return (
+    <Card variant="prominent" padding="none" style={heroStyles.card}>
+      {transfers.map((t, i) => (
+        <View key={i}>
+          {i > 0 && <Divider subtle />}
+          <TransferRow
+            fromName={t.from_display_name}
+            toName={t.to_display_name}
+            amount={parseNum(t.amount)}
+            currency={currency}
+          />
+        </View>
+      ))}
+    </Card>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Main screen
+// ---------------------------------------------------------------------------
 
 export default function SettlementScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -151,205 +262,237 @@ export default function SettlementScreen() {
   const isDealer = !!(me && game && me.id === game.dealer_user_id);
   const isClosed = game?.status === "closed";
 
+  // -- Loading --
   if (isLoading) {
     return (
       <>
         <Stack.Screen options={{ title: "Settlement" }} />
-        <View style={styles.centered}>
-          <ActivityIndicator size="large" color="#e94560" />
-        </View>
+        <SettlementSkeleton />
       </>
     );
   }
 
+  // -- Error --
   if (error || !settlement) {
     return (
       <>
         <Stack.Screen options={{ title: "Settlement" }} />
-        <View style={styles.centered}>
-          <Text style={styles.errorText}>Failed to load settlement</Text>
-          <Pressable
-            style={[styles.btn, styles.btnPrimary, { marginTop: 12 }]}
-            onPress={() => void refetch()}
-          >
-            <Text style={styles.btnText}>Retry</Text>
-          </Pressable>
-        </View>
+        <Screen>
+          <ErrorState
+            message="Failed to load settlement"
+            onRetry={() => void refetch()}
+          />
+        </Screen>
       </>
     );
   }
 
   const { currency } = settlement;
+  const chipCashRate = parseFloat(settlement.chip_cash_rate);
+  const shortageAmount = parseNum(settlement.shortage_amount);
+
+  // Separate winners and losers for visual grouping
+  const winners = settlement.balances.filter(
+    (b) => parseNum(b.adjusted_net_balance ?? b.net_balance) > 0,
+  );
+  const losers = settlement.balances.filter(
+    (b) => parseNum(b.adjusted_net_balance ?? b.net_balance) <= 0,
+  );
 
   return (
     <>
       <Stack.Screen options={{ title: "Settlement" }} />
-      <ScrollView style={styles.flex} contentContainerStyle={styles.container}>
-        {/* Info bar */}
-        <View style={styles.infoBar}>
-          <Text style={styles.infoText}>
-            Rate: {parseFloat(settlement.chip_cash_rate).toFixed(4)} {currency} / chip
+      <Screen scrollable>
+        <Spacer size="base" />
+
+        {/* Chip-cash rate info */}
+        <Row justify="start" gap="sm" style={layoutStyles.rateRow}>
+          <Text variant="caption" color="secondary">
+            Rate:
           </Text>
-        </View>
+          <Text variant="captionBold" color="secondary">
+            {chipCashRate.toFixed(4)} {currencySymbol(currency)} / chip
+          </Text>
+        </Row>
+
+        <Spacer size="base" />
 
         {/* Incomplete warning */}
-        {!settlement.is_complete ? (
-          <View style={styles.warnBanner}>
-            <Text style={styles.warnText}>
-              Some participants are missing final chip counts. Settlement is
-              incomplete — transfers are not yet available.
-            </Text>
-          </View>
-        ) : null}
+        {!settlement.is_complete && (
+          <>
+            <Card style={bannerStyles.warning}>
+              <Row gap="sm" align="start">
+                <Badge label="Incomplete" variant="warning" />
+                <Text variant="caption" color="warning" style={bannerStyles.text}>
+                  Some participants are missing final chip counts. Settlement is
+                  incomplete — transfers are not yet available.
+                </Text>
+              </Row>
+            </Card>
+            <Spacer size="base" />
+          </>
+        )}
 
         {/* Shortage banner */}
-        {parseFloat(settlement.shortage_amount) > 0 ? (
-          <View style={styles.shortageBanner}>
-            <Text style={styles.shortageTitle}>
-              Shortage: {currency} {parseFloat(settlement.shortage_amount).toFixed(2)} absorbed
-            </Text>
-            <Text style={styles.shortageDesc}>
-              Strategy:{" "}
-              {settlement.shortage_strategy === "proportional_winners"
-                ? "Proportional (winners only)"
-                : "Equal split (all participants)"}
-            </Text>
-          </View>
-        ) : null}
-
-        {/* Balances */}
-        <Text style={styles.sectionTitle}>Balances</Text>
-        {settlement.balances.map((b) => (
-          <BalanceCard key={b.participant_id} balance={b} currency={currency} />
-        ))}
-
-        {/* Transfers */}
-        {settlement.is_complete ? (
+        {shortageAmount > 0 && (
           <>
-            <Text style={[styles.sectionTitle, { marginTop: 24 }]}>
-              Who Pays Whom
-            </Text>
-            {settlement.transfers.length === 0 ? (
-              <Text style={styles.emptyText}>No transfers needed.</Text>
-            ) : (
-              settlement.transfers.map((t, i) => (
-                <TransferRow key={i} transfer={t} currency={currency} />
-              ))
-            )}
+            <Card style={bannerStyles.shortage}>
+              <Text variant="captionBold" color="warning">
+                Shortage: {currencySymbol(currency)}{shortageAmount.toFixed(2)} absorbed
+              </Text>
+              <Spacer size="xs" />
+              <Text variant="caption" color="secondary">
+                Strategy:{" "}
+                {settlement.shortage_strategy === "proportional_winners"
+                  ? "Proportional (winners only)"
+                  : "Equal split (all participants)"}
+              </Text>
+            </Card>
+            <Spacer size="base" />
           </>
-        ) : null}
+        )}
 
-        {/* Edit actions (closed game) */}
-        {isClosed ? (
-          <View style={{ marginTop: 24, gap: 8 }}>
-            {isDealer ? (
-              <>
-                <Pressable
-                  style={[styles.btn, { backgroundColor: "#2a2a5a" }]}
+        {/* ============================================================= */}
+        {/* HERO: Transfer list                                            */}
+        {/* ============================================================= */}
+        {settlement.is_complete && (
+          <>
+            <Section title="Who Pays Whom">
+              <TransferHero
+                transfers={settlement.transfers}
+                currency={currency}
+              />
+            </Section>
+            <Spacer size="md" />
+          </>
+        )}
+
+        {/* ============================================================= */}
+        {/* Winners                                                        */}
+        {/* ============================================================= */}
+        {winners.length > 0 && (
+          <Section title="Winners">
+            {winners.map((b) => (
+              <BalanceCard
+                key={b.participant_id}
+                balance={b}
+                currency={currency}
+              />
+            ))}
+          </Section>
+        )}
+
+        {/* ============================================================= */}
+        {/* Losers                                                         */}
+        {/* ============================================================= */}
+        {losers.length > 0 && (
+          <Section title={winners.length > 0 ? "Losers" : "Balances"}>
+            {losers.map((b) => (
+              <BalanceCard
+                key={b.participant_id}
+                balance={b}
+                currency={currency}
+              />
+            ))}
+          </Section>
+        )}
+
+        {/* ============================================================= */}
+        {/* Dealer retroactive edit actions                                */}
+        {/* ============================================================= */}
+        {isClosed && (
+          <>
+            <Divider spacing={tokens.spacing.lg} />
+
+            {isDealer && (
+              <Section title="Edit Closed Game">
+                <Button
+                  label="Edit Buy-Ins"
+                  variant="secondary"
+                  fullWidth
                   onPress={() => router.push(`/games/${id}/edit-buyins`)}
-                >
-                  <Text style={{ color: "#ccc", fontSize: 14 }}>Edit Buy-Ins</Text>
-                </Pressable>
-                <Pressable
-                  style={[styles.btn, { backgroundColor: "#2a2a5a" }]}
+                />
+                <Spacer size="sm" />
+                <Button
+                  label="Edit Final Stacks"
+                  variant="secondary"
+                  fullWidth
                   onPress={() => router.push(`/games/${id}/edit-final-stacks`)}
-                >
-                  <Text style={{ color: "#ccc", fontSize: 14 }}>Edit Final Stacks</Text>
-                </Pressable>
-              </>
-            ) : null}
-            <Pressable
-              style={[styles.btn, { backgroundColor: "#2a2a5a" }]}
+                />
+                <Spacer size="lg" />
+              </Section>
+            )}
+
+            <Button
+              label="View Edit History"
+              variant="ghost"
+              fullWidth
               onPress={() => router.push(`/games/${id}/edit-history`)}
-            >
-              <Text style={{ color: "#ccc", fontSize: 14 }}>View Edit History</Text>
-            </Pressable>
-          </View>
-        ) : null}
-      </ScrollView>
+            />
+          </>
+        )}
+
+        <Spacer size="4xl" />
+      </Screen>
     </>
   );
 }
 
-const styles = StyleSheet.create({
-  flex: { flex: 1 },
-  container: { padding: 16, paddingBottom: 48 },
-  centered: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    padding: 24,
-  },
-  errorText: { color: "#ff6b6b", fontSize: 15 },
-  btn: { borderRadius: 8, paddingVertical: 13, alignItems: "center", paddingHorizontal: 24 },
-  btnPrimary: { backgroundColor: "#e94560" },
-  btnText: { color: "#fff", fontSize: 14, fontWeight: "600" },
-  infoBar: {
-    backgroundColor: "#16213e",
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 12,
-  },
-  infoText: { color: "#888", fontSize: 13 },
-  warnBanner: {
-    backgroundColor: "#4a3000",
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 16,
-  },
-  warnText: { color: "#f0a500", fontSize: 13 },
-  sectionTitle: {
-    color: "#aaa",
-    fontSize: 13,
-    fontWeight: "700",
-    textTransform: "uppercase",
-    letterSpacing: 0.8,
-    marginBottom: 10,
-  },
-  card: {
-    backgroundColor: "#16213e",
-    borderRadius: 10,
-    padding: 14,
-    marginBottom: 10,
-  },
-  cardHeaderRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 10,
-  },
-  cardName: { color: "#fff", fontSize: 15, fontWeight: "600", flex: 1 },
-  netBalance: { fontSize: 16, fontWeight: "700" },
-  cardDetails: { gap: 4 },
-  detailRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-  },
-  detailLabel: { color: "#777", fontSize: 12 },
-  detailValue: { fontSize: 12, fontWeight: "500" },
+// ---------------------------------------------------------------------------
+// Styles
+// ---------------------------------------------------------------------------
+
+const skeletonStyles = StyleSheet.create({
   transferRow: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#16213e",
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 8,
-    flexWrap: "wrap",
-    gap: 2,
+    gap: tokens.spacing.sm,
+    paddingVertical: tokens.spacing.md,
   },
-  transferFrom: { color: "#e94560", fontSize: 14, fontWeight: "600" },
-  transferArrow: { color: "#666", fontSize: 14 },
-  transferTo: { color: "#2ecc71", fontSize: 14, fontWeight: "600", flex: 1 },
-  transferAmount: { color: "#fff", fontSize: 15, fontWeight: "700" },
-  emptyText: { color: "#555", fontSize: 13 },
-  shortageBanner: {
-    backgroundColor: "#1a1000",
+});
+
+const layoutStyles = StyleSheet.create({
+  rateRow: {
+    paddingHorizontal: tokens.spacing.xs,
+  },
+});
+
+const bannerStyles = StyleSheet.create({
+  warning: {
     borderLeftWidth: 3,
-    borderLeftColor: "#f0a500",
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 16,
+    borderLeftColor: tokens.color.semantic.warning,
   },
-  shortageTitle: { color: "#f0a500", fontSize: 13, fontWeight: "700", marginBottom: 2 },
-  shortageDesc: { color: "#a07030", fontSize: 12 },
+  shortage: {
+    borderLeftWidth: 3,
+    borderLeftColor: tokens.color.semantic.warning,
+  },
+  text: {
+    flex: 1,
+  },
+});
+
+const heroStyles = StyleSheet.create({
+  card: {
+    borderWidth: 1,
+    borderColor: tokens.color.border.subtle,
+  },
+});
+
+const cardStyles = StyleSheet.create({
+  card: {
+    marginBottom: tokens.spacing.md,
+  },
+  name: {
+    flex: 1,
+    marginRight: tokens.spacing.md,
+  },
+  details: {
+    gap: tokens.spacing.xs,
+  },
+});
+
+const detailStyles = StyleSheet.create({
+  row: {
+    paddingVertical: tokens.spacing.xs,
+  },
 });

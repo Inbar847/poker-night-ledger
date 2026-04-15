@@ -24,6 +24,7 @@ import { z } from "zod";
 import { queryKeys } from "@/lib/queryKeys";
 import * as gameService from "@/services/gameService";
 import { useAuthStore } from "@/store/authStore";
+import { tokens } from "@/theme";
 
 const schema = z.object({
   token: z.string().min(1, "Token is required"),
@@ -84,7 +85,7 @@ export default function JoinGameScreen() {
             <TextInput
               style={[styles.input, errors.token && styles.inputError]}
               placeholder="Paste invite token here"
-              placeholderTextColor="#555"
+              placeholderTextColor={tokens.color.text.muted}
               autoCapitalize="none"
               autoCorrect={false}
               value={token}
@@ -103,7 +104,7 @@ export default function JoinGameScreen() {
             disabled={mutation.isPending}
           >
             {mutation.isPending ? (
-              <ActivityIndicator color="#fff" />
+              <ActivityIndicator color={tokens.color.white} />
             ) : (
               <Text style={styles.btnText}>Join Game</Text>
             )}
@@ -116,40 +117,42 @@ export default function JoinGameScreen() {
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  container: { flex: 1, padding: 24 },
+  container: { flex: 1, padding: tokens.spacing.xl },
   heading: {
-    color: "#fff",
+    color: tokens.color.text.primary,
     fontSize: 22,
     fontWeight: "bold",
     marginBottom: 6,
   },
-  subheading: { color: "#888", fontSize: 14, marginBottom: 28 },
+  subheading: { color: tokens.color.text.muted, fontSize: 14, marginBottom: 28 },
   errorBanner: {
-    backgroundColor: "#4a1020",
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 16,
-  },
-  errorBannerText: { color: "#ff6b6b", fontSize: 14 },
-  field: { marginBottom: 16 },
-  input: {
-    backgroundColor: "#16213e",
+    backgroundColor: `${tokens.color.semantic.negative}1F`,
+    borderRadius: tokens.radius.md,
+    padding: tokens.spacing.md,
+    marginBottom: tokens.spacing.base,
     borderWidth: 1,
-    borderColor: "#2a2a5a",
-    borderRadius: 8,
+    borderColor: `${tokens.color.semantic.negative}40`,
+  },
+  errorBannerText: { color: tokens.color.semantic.negative, fontSize: 14 },
+  field: { marginBottom: tokens.spacing.base },
+  input: {
+    backgroundColor: tokens.color.bg.elevated,
+    borderWidth: 1,
+    borderColor: tokens.color.border.default,
+    borderRadius: tokens.radius.md,
     paddingHorizontal: 14,
     paddingVertical: 14,
-    color: "#fff",
+    color: tokens.color.text.primary,
     fontSize: 15,
   },
-  inputError: { borderColor: "#e94560" },
-  fieldError: { color: "#e94560", fontSize: 12, marginTop: 4 },
+  inputError: { borderColor: tokens.color.semantic.negative },
+  fieldError: { color: tokens.color.semantic.negative, fontSize: 12, marginTop: 4 },
   btn: {
-    backgroundColor: "#e94560",
-    borderRadius: 8,
+    backgroundColor: tokens.color.accent.primary,
+    borderRadius: tokens.radius.md,
     paddingVertical: 14,
     alignItems: "center",
   },
   btnDisabled: { opacity: 0.6 },
-  btnText: { color: "#fff", fontSize: 15, fontWeight: "600" },
+  btnText: { color: tokens.color.white, fontSize: 15, fontWeight: "600" },
 });

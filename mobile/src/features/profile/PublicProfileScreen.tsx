@@ -29,6 +29,7 @@ import {
 import { queryKeys } from "@/lib/queryKeys";
 import { getPublicProfile, getUserStats } from "@/services/userService";
 import { useAuthStore } from "@/store/authStore";
+import { tokens } from "@/theme";
 
 interface PublicProfileScreenProps {
   userId: string;
@@ -45,7 +46,7 @@ function FriendshipButton({ userId }: { userId: string }) {
   const removeFriend = useRemoveFriend(userId);
 
   if (isLoading) {
-    return <ActivityIndicator color="#e94560" style={{ marginBottom: 20 }} />;
+    return <ActivityIndicator color={tokens.color.accent.primary} style={{ marginBottom: 20 }} />;
   }
 
   const status = statusData?.status ?? "not_friends";
@@ -62,7 +63,7 @@ function FriendshipButton({ userId }: { userId: string }) {
         disabled={isMutating}
       >
         {isMutating ? (
-          <ActivityIndicator color="#fff" size="small" />
+          <ActivityIndicator color={tokens.color.white} size="small" />
         ) : (
           <Text style={styles.friendBtnText}>Add Friend</Text>
         )}
@@ -86,7 +87,7 @@ function FriendshipButton({ userId }: { userId: string }) {
         disabled={isMutating || !friendshipId}
       >
         {isMutating ? (
-          <ActivityIndicator color="#fff" size="small" />
+          <ActivityIndicator color={tokens.color.white} size="small" />
         ) : (
           <Text style={styles.friendBtnText}>Accept Request</Text>
         )}
@@ -143,7 +144,7 @@ export default function PublicProfileScreen({ userId }: PublicProfileScreenProps
   if (profileLoading) {
     return (
       <View style={styles.centered}>
-        <ActivityIndicator color="#e94560" />
+        <ActivityIndicator color={tokens.color.accent.primary} />
       </View>
     );
   }
@@ -178,7 +179,7 @@ export default function PublicProfileScreen({ userId }: PublicProfileScreenProps
 
       {/* Stats section */}
       {statsLoading ? (
-        <ActivityIndicator color="#e94560" style={{ marginTop: 24 }} />
+        <ActivityIndicator color={tokens.color.accent.primary} style={{ marginTop: 24 }} />
       ) : stats ? (
         <View style={styles.statsSection}>
           {/* Always-visible stat */}
@@ -259,87 +260,87 @@ export default function PublicProfileScreen({ userId }: PublicProfileScreenProps
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#1a1a2e" },
-  content: { padding: 20 },
-  centered: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: "#1a1a2e" },
-  errorText: { color: "#e94560", fontSize: 16 },
+  container: { flex: 1, backgroundColor: tokens.color.bg.primary },
+  content: { padding: tokens.spacing.lg },
+  centered: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: tokens.color.bg.primary },
+  errorText: { color: tokens.color.semantic.negative, fontSize: 16 },
 
-  avatarSection: { alignItems: "center", marginBottom: 16 },
-  avatarImage: { width: 96, height: 96, borderRadius: 48, marginBottom: 12 },
+  avatarSection: { alignItems: "center", marginBottom: tokens.spacing.base },
+  avatarImage: { width: 96, height: 96, borderRadius: 48, marginBottom: tokens.spacing.md },
   avatarFallback: {
     width: 96,
     height: 96,
     borderRadius: 48,
-    backgroundColor: "#e94560",
+    backgroundColor: tokens.color.accent.primary,
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 12,
+    marginBottom: tokens.spacing.md,
   },
-  avatarInitials: { color: "#ffffff", fontSize: 40, fontWeight: "700" },
-  displayName: { color: "#ffffff", fontSize: 22, fontWeight: "700" },
+  avatarInitials: { color: tokens.color.white, fontSize: 40, fontWeight: "700" },
+  displayName: { color: tokens.color.text.primary, fontSize: 22, fontWeight: "700" },
 
   // Friendship button styles
   friendBtn: {
-    borderRadius: 8,
+    borderRadius: tokens.radius.md,
     paddingVertical: 10,
     paddingHorizontal: 20,
     alignItems: "center",
     alignSelf: "center",
-    marginBottom: 20,
+    marginBottom: tokens.spacing.lg,
     minWidth: 160,
   },
-  addFriendBtn: { backgroundColor: "#e94560" },
-  pendingBtn: { backgroundColor: "#2a2a5a" },
-  acceptBtn: { backgroundColor: "#2ecc71" },
-  friendsBtn: { backgroundColor: "#16213e", borderWidth: 1, borderColor: "#2a2a5a" },
-  friendBtnText: { color: "#ffffff", fontSize: 15, fontWeight: "600" },
-  pendingBtnText: { color: "#888", fontSize: 15 },
-  friendsBtnText: { color: "#aaa", fontSize: 15 },
+  addFriendBtn: { backgroundColor: tokens.color.accent.primary },
+  pendingBtn: { backgroundColor: tokens.color.bg.surface },
+  acceptBtn: { backgroundColor: tokens.color.semantic.positive },
+  friendsBtn: { backgroundColor: tokens.color.bg.elevated, borderWidth: 1, borderColor: tokens.color.border.default },
+  friendBtnText: { color: tokens.color.white, fontSize: 15, fontWeight: "600" },
+  pendingBtnText: { color: tokens.color.text.muted, fontSize: 15 },
+  friendsBtnText: { color: tokens.color.text.secondary, fontSize: 15 },
   btnDisabled: { opacity: 0.6 },
 
-  statsSection: { gap: 12 },
-  statRow: { flexDirection: "row", gap: 12 },
+  statsSection: { gap: tokens.spacing.md },
+  statRow: { flexDirection: "row", gap: tokens.spacing.md },
   statCard: {
     flex: 1,
-    backgroundColor: "#16213e",
-    borderRadius: 10,
-    padding: 16,
+    backgroundColor: tokens.color.bg.elevated,
+    borderRadius: tokens.radius.md,
+    padding: tokens.spacing.base,
     alignItems: "center",
   },
-  statValue: { color: "#ffffff", fontSize: 26, fontWeight: "700" },
-  statLabel: { color: "#aaa", fontSize: 12, marginTop: 4 },
+  statValue: { color: tokens.color.text.primary, fontSize: 26, fontWeight: "700" },
+  statLabel: { color: tokens.color.text.secondary, fontSize: 12, marginTop: 4 },
 
   netCard: {
-    backgroundColor: "#16213e",
-    borderRadius: 10,
-    padding: 16,
+    backgroundColor: tokens.color.bg.elevated,
+    borderRadius: tokens.radius.md,
+    padding: tokens.spacing.base,
     alignItems: "center",
   },
-  netLabel: { color: "#aaa", fontSize: 13, marginBottom: 4 },
+  netLabel: { color: tokens.color.text.secondary, fontSize: 13, marginBottom: 4 },
   netValue: { fontSize: 28, fontWeight: "700" },
-  positive: { color: "#4caf50" },
-  negative: { color: "#e94560" },
+  positive: { color: tokens.color.semantic.positive },
+  negative: { color: tokens.color.semantic.negative },
 
   metaRow: {
     flexDirection: "row",
     justifyContent: "space-between",
-    backgroundColor: "#16213e",
-    borderRadius: 8,
-    paddingHorizontal: 16,
+    backgroundColor: tokens.color.bg.elevated,
+    borderRadius: tokens.radius.md,
+    paddingHorizontal: tokens.spacing.base,
     paddingVertical: 10,
   },
-  metaLabel: { color: "#aaa", fontSize: 14 },
-  metaValue: { color: "#ffffff", fontSize: 14, fontWeight: "600" },
+  metaLabel: { color: tokens.color.text.secondary, fontSize: 14 },
+  metaValue: { color: tokens.color.text.primary, fontSize: 14, fontWeight: "600" },
 
   lockedBlock: {
-    backgroundColor: "#16213e",
-    borderRadius: 10,
+    backgroundColor: tokens.color.bg.elevated,
+    borderRadius: tokens.radius.md,
     padding: 28,
     alignItems: "center",
-    gap: 8,
-    marginTop: 8,
+    gap: tokens.spacing.sm,
+    marginTop: tokens.spacing.sm,
   },
   lockIcon: { fontSize: 36 },
-  lockedTitle: { color: "#ffffff", fontSize: 16, fontWeight: "700" },
-  lockedSubtitle: { color: "#aaa", fontSize: 13, textAlign: "center", lineHeight: 20 },
+  lockedTitle: { color: tokens.color.text.primary, fontSize: 16, fontWeight: "700" },
+  lockedSubtitle: { color: tokens.color.text.secondary, fontSize: 13, textAlign: "center", lineHeight: 20 },
 });

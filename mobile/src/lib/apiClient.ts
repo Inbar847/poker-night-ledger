@@ -14,6 +14,11 @@
 
 import { API_URL } from "@/lib/config";
 
+/** Default request timeout in milliseconds. Prevents fetch from hanging
+ *  indefinitely when the backend is unreachable, which would keep TanStack
+ *  Query in isLoading state forever (infinite skeleton). */
+const REQUEST_TIMEOUT_MS = 15_000;
+
 // Lazy import to avoid circular dependency at module load time.
 // The store is a singleton so accessing it via getState() is safe outside React.
 function getAuthStore() {
@@ -32,6 +37,13 @@ class ApiError extends Error {
   }
 }
 
+/** Create an AbortSignal that fires after the given timeout. */
+function timeoutSignal(ms: number): AbortSignal {
+  const controller = new AbortController();
+  setTimeout(() => controller.abort(), ms);
+  return controller.signal;
+}
+
 async function refreshAccessToken(refreshToken: string): Promise<{
   access_token: string;
   refresh_token: string;
@@ -40,6 +52,7 @@ async function refreshAccessToken(refreshToken: string): Promise<{
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ refresh_token: refreshToken }),
+    signal: timeoutSignal(REQUEST_TIMEOUT_MS),
   });
   if (!res.ok) throw new ApiError(res.status, "Token refresh failed");
   return res.json();
@@ -61,7 +74,11 @@ async function request<T>(
     headers["Authorization"] = `Bearer ${accessToken}`;
   }
 
-  const res = await fetch(`${API_URL}${path}`, { ...init, headers });
+  const res = await fetch(`${API_URL}${path}`, {
+    ...init,
+    headers,
+    signal: init.signal ?? timeoutSignal(REQUEST_TIMEOUT_MS),
+  });
 
   if (res.status === 401 && !isRetry && refreshToken) {
     try {

@@ -126,6 +126,21 @@ def get_game(
     return game
 
 
+@router.post("/{game_id}/hide", status_code=status.HTTP_204_NO_CONTENT)
+def hide_game(
+    game_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> None:
+    """Hide a game from the current user's lists. Only lobby or closed games can be hidden."""
+    game = _get_game_or_404(db, game_id)
+    participant = _get_participant_or_403(db, game_id, current_user.id)
+    try:
+        game_service.hide_game_for_user(db, game, participant)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
 @router.post("/{game_id}/invite-link", response_model=InviteLinkResponse)
 def generate_invite_link(
     game_id: uuid.UUID,

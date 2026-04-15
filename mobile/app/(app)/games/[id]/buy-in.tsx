@@ -20,26 +20,38 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
-import {
-  ActivityIndicator,
-  KeyboardAvoidingView,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from "react-native";
+import { StyleSheet, View } from "react-native";
 import { z } from "zod";
+
+import {
+  Text,
+  Button,
+  Card,
+  Badge,
+  Spacer,
+  Screen,
+  Section,
+  Row,
+  FormField,
+  NumericInput,
+  SelectField,
+  Skeleton,
+  currencySymbol,
+} from "@/components";
 
 import { cashToChips, chipsToCash } from "@/lib/buyInAutofill";
 import { queryKeys } from "@/lib/queryKeys";
 import * as gameService from "@/services/gameService";
 import * as ledgerService from "@/services/ledgerService";
+import { tokens } from "@/theme";
 import type { BuyInType } from "@/types/game";
 
 const BUY_IN_TYPES: BuyInType[] = ["initial", "rebuy", "addon"];
+
+const buyInTypeOptions = BUY_IN_TYPES.map((t) => ({
+  label: t.charAt(0).toUpperCase() + t.slice(1),
+  value: t,
+}));
 
 const schema = z.object({
   cash_amount: z
@@ -144,209 +156,131 @@ export default function BuyInScreen() {
     }
   }
 
+  // Build participant options for SelectField
+  const participantOptions = participants.map((p) => ({
+    label: p.display_name,
+    value: p.id,
+  }));
+
   return (
     <>
       <Stack.Screen options={{ title: "Add Buy-in" }} />
-      <KeyboardAvoidingView
-        style={styles.flex}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-      >
-        <ScrollView
-          contentContainerStyle={styles.container}
-          keyboardShouldPersistTaps="handled"
-        >
-          {mutation.error ? (
-            <View style={styles.errorBanner}>
-              <Text style={styles.errorBannerText}>
+      <Screen scrollable keyboardAvoiding>
+        <Spacer size="base" />
+
+        {/* Error banner */}
+        {mutation.error ? (
+          <>
+            <Card variant="default" padding="compact" style={styles.errorBanner}>
+              <Text variant="body" color="negative">
                 {mutation.error instanceof Error
                   ? mutation.error.message
                   : "Failed to add buy-in"}
               </Text>
-            </View>
-          ) : null}
+            </Card>
+            <Spacer size="base" />
+          </>
+        ) : null}
 
-          {rateIsZero ? (
-            <View style={styles.warningBanner}>
-              <Text style={styles.warningBannerText}>
+        {/* Zero rate warning */}
+        {rateIsZero ? (
+          <>
+            <Card variant="default" padding="compact" style={styles.warningBanner}>
+              <Text variant="caption" color="warning">
                 chip_cash_rate is 0 — autofill is disabled. Enter both amounts manually.
               </Text>
-            </View>
-          ) : null}
+            </Card>
+            <Spacer size="base" />
+          </>
+        ) : null}
 
-          {/* Participant selector */}
-          <Text style={styles.label}>Participant *</Text>
+        {/* Participant selector */}
+        <Section title="Participant">
           {participantsLoading ? (
-            <ActivityIndicator color="#e94560" />
+            <Skeleton height={tokens.size.touchTarget} radius={tokens.radius.lg} />
           ) : (
-            <View style={styles.chipRow}>
-              {participants.map((p) => (
-                <Pressable
-                  key={p.id}
-                  style={[
-                    styles.chip,
-                    selectedParticipant === p.id && styles.chipSelected,
-                  ]}
-                  onPress={() => setSelectedParticipant(p.id)}
-                >
-                  <Text
-                    style={[
-                      styles.chipText,
-                      selectedParticipant === p.id && styles.chipTextSelected,
-                    ]}
-                  >
-                    {p.display_name}
-                  </Text>
-                </Pressable>
-              ))}
-            </View>
+            <SelectField
+              options={participantOptions}
+              value={selectedParticipant ?? ""}
+              onSelect={setSelectedParticipant}
+              error={!selectedParticipant ? undefined : undefined}
+            />
           )}
+        </Section>
 
-          {/* Buy-in type */}
-          <Text style={[styles.label, { marginTop: 16 }]}>Type *</Text>
-          <View style={styles.chipRow}>
-            {BUY_IN_TYPES.map((t) => (
-              <Pressable
-                key={t}
-                style={[styles.chip, buyInType === t && styles.chipSelected]}
-                onPress={() => setBuyInType(t)}
-              >
-                <Text
-                  style={[
-                    styles.chipText,
-                    buyInType === t && styles.chipTextSelected,
-                  ]}
-                >
-                  {t.charAt(0).toUpperCase() + t.slice(1)}
-                </Text>
-              </Pressable>
-            ))}
-          </View>
+        {/* Buy-in type */}
+        <Section title="Type">
+          <SelectField
+            options={buyInTypeOptions}
+            value={buyInType}
+            onSelect={(v) => setBuyInType(v as BuyInType)}
+          />
+        </Section>
 
-          {/* Cash amount */}
-          <View style={[styles.field, { marginTop: 16 }]}>
-            <View style={styles.labelRow}>
-              <Text style={styles.label}>Cash amount *</Text>
-              {lastEdited === "chips" && chipsAmount !== "" && cashAmount !== "" ? (
-                <Text style={styles.autoLabel}>← auto</Text>
-              ) : null}
-            </View>
-            <TextInput
-              style={[styles.input, errors.cash_amount && styles.inputError]}
-              placeholder="50.00"
-              placeholderTextColor="#555"
-              keyboardType="decimal-pad"
-              value={cashAmount}
-              onChangeText={handleCashChange}
-            />
-            {errors.cash_amount ? (
-              <Text style={styles.fieldError}>{errors.cash_amount.message}</Text>
-            ) : null}
-          </View>
+        {/* Cash amount */}
+        <FormField
+          label={
+            lastEdited === "chips" && chipsAmount !== "" && cashAmount !== ""
+              ? "Cash amount  ← auto"
+              : "Cash amount"
+          }
+          error={errors.cash_amount?.message}
+        >
+          <NumericInput
+            value={cashAmount}
+            onChangeText={handleCashChange}
+            prefix={currencySymbol(game?.currency ?? "ILS")}
+            placeholder="50.00"
+            decimal
+            error={errors.cash_amount?.message}
+          />
+        </FormField>
 
-          {/* Chips amount */}
-          <View style={styles.field}>
-            <View style={styles.labelRow}>
-              <Text style={styles.label}>Chips amount *</Text>
-              {lastEdited === "cash" && cashAmount !== "" && chipsAmount !== "" ? (
-                <Text style={styles.autoLabel}>← auto</Text>
-              ) : null}
-            </View>
-            <TextInput
-              style={[styles.input, errors.chips_amount && styles.inputError]}
-              placeholder="5000"
-              placeholderTextColor="#555"
-              keyboardType="decimal-pad"
-              value={chipsAmount}
-              onChangeText={handleChipsChange}
-            />
-            {errors.chips_amount ? (
-              <Text style={styles.fieldError}>
-                {errors.chips_amount.message}
-              </Text>
-            ) : null}
-          </View>
+        {/* Chips amount */}
+        <FormField
+          label={
+            lastEdited === "cash" && cashAmount !== "" && chipsAmount !== ""
+              ? "Chips amount  ← auto"
+              : "Chips amount"
+          }
+          error={errors.chips_amount?.message}
+        >
+          <NumericInput
+            value={chipsAmount}
+            onChangeText={handleChipsChange}
+            suffix="chips"
+            placeholder="5000"
+            decimal
+            error={errors.chips_amount?.message}
+          />
+        </FormField>
 
-          <Pressable
-            style={[
-              styles.btn,
-              styles.btnPrimary,
-              (!selectedParticipant || mutation.isPending) && styles.btnDisabled,
-            ]}
-            onPress={handleSubmit((v) => mutation.mutate(v))}
-            disabled={!selectedParticipant || mutation.isPending}
-          >
-            {mutation.isPending ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <Text style={styles.btnText}>Add Buy-in</Text>
-            )}
-          </Pressable>
-        </ScrollView>
-      </KeyboardAvoidingView>
+        <Spacer size="lg" />
+
+        {/* Submit */}
+        <Button
+          label="Add Buy-in"
+          variant="primary"
+          size="lg"
+          fullWidth
+          loading={mutation.isPending}
+          disabled={!selectedParticipant || mutation.isPending}
+          onPress={handleSubmit((v) => mutation.mutate(v))}
+        />
+
+        <Spacer size="4xl" />
+      </Screen>
     </>
   );
 }
 
 const styles = StyleSheet.create({
-  flex: { flex: 1 },
-  container: { padding: 20, paddingBottom: 48 },
   errorBanner: {
-    backgroundColor: "#4a1020",
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: tokens.color.semantic.negative,
   },
-  errorBannerText: { color: "#ff6b6b", fontSize: 14 },
   warningBanner: {
-    backgroundColor: "#3a2a00",
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 16,
-  },
-  warningBannerText: { color: "#f0a500", fontSize: 13 },
-  label: { color: "#ccc", fontSize: 13, fontWeight: "600", marginBottom: 8 },
-  labelRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 8,
-  },
-  autoLabel: {
-    color: "#888",
-    fontSize: 11,
-    fontStyle: "italic",
-  },
-  chipRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 4 },
-  chip: {
     borderWidth: 1,
-    borderColor: "#2a2a5a",
-    borderRadius: 20,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
+    borderColor: tokens.color.semantic.warning,
   },
-  chipSelected: { backgroundColor: "#e94560", borderColor: "#e94560" },
-  chipText: { color: "#aaa", fontSize: 13 },
-  chipTextSelected: { color: "#fff", fontWeight: "600" },
-  field: { marginBottom: 16 },
-  input: {
-    backgroundColor: "#16213e",
-    borderWidth: 1,
-    borderColor: "#2a2a5a",
-    borderRadius: 8,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    color: "#fff",
-    fontSize: 16,
-  },
-  inputError: { borderColor: "#e94560" },
-  fieldError: { color: "#e94560", fontSize: 12, marginTop: 4 },
-  btn: {
-    borderRadius: 8,
-    paddingVertical: 14,
-    alignItems: "center",
-    marginTop: 8,
-  },
-  btnPrimary: { backgroundColor: "#e94560" },
-  btnDisabled: { opacity: 0.5 },
-  btnText: { color: "#fff", fontSize: 15, fontWeight: "600" },
 });

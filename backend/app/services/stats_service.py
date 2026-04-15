@@ -127,11 +127,13 @@ def _total_buy_ins_for_participant(
 
 def get_history(db: Session, user_id: uuid.UUID) -> list[GameHistoryItem]:
     """
-    Return all closed games where the user was a registered participant,
-    ordered by closed_at descending (most recent first).
+    Return all closed, non-hidden games where the user was a registered
+    participant, ordered by closed_at descending (most recent first).
     """
     participants = (
-        db.query(Participant).filter(Participant.user_id == user_id).all()
+        db.query(Participant)
+        .filter(Participant.user_id == user_id, Participant.hidden_at.is_(None))
+        .all()
     )
     if not participants:
         return []

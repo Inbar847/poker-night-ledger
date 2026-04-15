@@ -12,7 +12,7 @@ class GameCreate(BaseModel):
     title: str = Field(min_length=1, max_length=255)
     scheduled_at: datetime | None = None
     chip_cash_rate: Decimal = Field(gt=0)
-    currency: str = Field(default="USD", max_length=10)
+    currency: str = Field(default="ILS", max_length=10)
 
     @field_validator("title", mode="before")
     @classmethod

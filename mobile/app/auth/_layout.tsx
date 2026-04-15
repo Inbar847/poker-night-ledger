@@ -1,5 +1,6 @@
-import { Redirect, Stack } from "expo-router";
-import { useAuthStore } from "@/store/authStore";
+import { Redirect, Stack } from 'expo-router';
+import { useAuthStore } from '@/store/authStore';
+import { tokens } from '@/theme';
 
 export default function AuthLayout() {
   const { isBootstrapped, accessToken } = useAuthStore();
@@ -12,10 +13,9 @@ export default function AuthLayout() {
   return (
     <Stack
       screenOptions={{
-        headerStyle: { backgroundColor: "#1a1a2e" },
-        headerTintColor: "#ffffff",
-        headerTitleStyle: { fontWeight: "bold" },
-        contentStyle: { backgroundColor: "#1a1a2e" },
+        headerShown: false,
+        contentStyle: { backgroundColor: tokens.color.bg.primary },
+        animation: 'fade',
       }}
     />
   );

@@ -16,23 +16,33 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
-import {
-  ActivityIndicator,
-  KeyboardAvoidingView,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from "react-native";
+import { Pressable, StyleSheet, View } from "react-native";
 import { z } from "zod";
+
+import {
+  Text,
+  Button,
+  Card,
+  Badge,
+  Spacer,
+  Divider,
+  Screen,
+  Section,
+  Row,
+  Input,
+  FormField,
+  NumericInput,
+  SelectField,
+  Skeleton,
+  MoneyAmount,
+  currencySymbol,
+} from "@/components";
 
 import { queryKeys } from "@/lib/queryKeys";
 import * as gameService from "@/services/gameService";
 import * as ledgerService from "@/services/ledgerService";
 import { useAuthStore } from "@/store/authStore";
+import { tokens } from "@/theme";
 import type { Participant } from "@/types/game";
 
 const schema = z.object({
@@ -155,122 +165,105 @@ export default function ExpenseScreen() {
 
   const canSubmit = !!paidBy && selectedParticipants.length > 0 && !mutation.isPending;
 
+  // Participant options for SelectField
+  const participantOptions = participants.map((p) => ({
+    label: p.display_name,
+    value: p.id,
+  }));
+
   return (
     <>
       <Stack.Screen options={{ title: "Add Expense" }} />
-      <KeyboardAvoidingView
-        style={styles.flex}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-      >
-        <ScrollView
-          contentContainerStyle={styles.container}
-          keyboardShouldPersistTaps="handled"
-        >
-          {mutation.error ? (
-            <View style={styles.errorBanner}>
-              <Text style={styles.errorBannerText}>
+      <Screen scrollable keyboardAvoiding>
+        <Spacer size="base" />
+
+        {/* Error banner */}
+        {mutation.error ? (
+          <>
+            <Card variant="default" padding="compact" style={styles.errorBanner}>
+              <Text variant="body" color="negative">
                 {mutation.error instanceof Error
                   ? mutation.error.message
                   : "Failed to add expense"}
               </Text>
-            </View>
-          ) : null}
+            </Card>
+            <Spacer size="base" />
+          </>
+        ) : null}
 
-          {/* Title */}
-          <View style={styles.field}>
-            <Text style={styles.label}>Expense title *</Text>
-            <TextInput
-              style={[styles.input, errors.title && styles.inputError]}
-              placeholder="Pizza, drinks, etc."
-              placeholderTextColor="#555"
-              value={title}
-              onChangeText={(v) =>
-                setValue("title", v, { shouldValidate: true })
-              }
-            />
-            {errors.title ? (
-              <Text style={styles.fieldError}>{errors.title.message}</Text>
-            ) : null}
-          </View>
+        {/* Title */}
+        <FormField label="Expense title" error={errors.title?.message}>
+          <Input
+            placeholder="Pizza, drinks, etc."
+            value={title}
+            onChangeText={(v) =>
+              setValue("title", v, { shouldValidate: true })
+            }
+            error={errors.title?.message}
+          />
+        </FormField>
 
-          {/* Total amount */}
-          <View style={styles.field}>
-            <Text style={styles.label}>Total amount *</Text>
-            <TextInput
-              style={[styles.input, errors.total_amount && styles.inputError]}
-              placeholder="40.00"
-              placeholderTextColor="#555"
-              keyboardType="decimal-pad"
-              value={total}
-              onChangeText={(v) =>
-                setValue("total_amount", v, { shouldValidate: true })
-              }
-            />
-            {errors.total_amount ? (
-              <Text style={styles.fieldError}>{errors.total_amount.message}</Text>
-            ) : null}
-          </View>
+        {/* Total amount */}
+        <FormField label="Total amount" error={errors.total_amount?.message}>
+          <NumericInput
+            value={total}
+            onChangeText={(v) =>
+              setValue("total_amount", v, { shouldValidate: true })
+            }
+            prefix={currencySymbol(game?.currency ?? "ILS")}
+            placeholder="40.00"
+            decimal
+            error={errors.total_amount?.message}
+          />
+        </FormField>
 
-          {/* Paid by */}
-          <Text style={styles.label}>Paid by *</Text>
+        {/* Paid by */}
+        <Section title="Paid by">
           {participantsLoading ? (
-            <ActivityIndicator color="#e94560" />
+            <Skeleton height={tokens.size.touchTarget} radius={tokens.radius.lg} />
           ) : isDealer ? (
-            <View style={styles.chipRow}>
-              {participants.map((p) => (
-                <Pressable
-                  key={p.id}
-                  style={[
-                    styles.chip,
-                    paidBy === p.id && styles.chipSelected,
-                  ]}
-                  onPress={() => setPaidBy(p.id)}
-                >
-                  <Text
-                    style={[
-                      styles.chipText,
-                      paidBy === p.id && styles.chipTextSelected,
-                    ]}
-                  >
-                    {p.display_name}
-                  </Text>
-                </Pressable>
-              ))}
-            </View>
+            <SelectField
+              options={participantOptions}
+              value={paidBy ?? ""}
+              onSelect={setPaidBy}
+            />
           ) : (
-            <View style={styles.chipRow}>
-              <View style={[styles.chip, styles.chipSelected]}>
-                <Text style={[styles.chipText, styles.chipTextSelected]}>
+            <Card variant="default" padding="compact">
+              <Row gap="sm" align="center">
+                <Badge label="You" variant="accent" />
+                <Text variant="bodyBold">
                   {myParticipant?.display_name ?? "You"}
                 </Text>
-              </View>
-            </View>
+              </Row>
+            </Card>
           )}
+        </Section>
 
-          {/* Split among */}
-          <Text style={[styles.label, { marginTop: 12 }]}>
-            Split among * ({selectedParticipants.length} selected)
-          </Text>
+        {/* Split among */}
+        <Section
+          title="Split among"
+          subtitle={`${selectedParticipants.length} selected`}
+        >
           {participantsLoading ? (
-            <ActivityIndicator color="#e94560" />
+            <Skeleton height={tokens.size.touchTarget} radius={tokens.radius.lg} />
           ) : (
-            <View style={styles.chipRow}>
+            <View style={styles.splitChipRow}>
               {participants.map((p) => {
                 const included = splitIds.has(p.id);
                 return (
                   <Pressable
                     key={p.id}
                     style={[
-                      styles.chip,
-                      included && styles.chipIncluded,
+                      styles.splitChip,
+                      included && styles.splitChipIncluded,
                     ]}
                     onPress={() => toggleSplitId(p.id)}
+                    accessibilityRole="checkbox"
+                    accessibilityState={{ checked: included }}
                   >
                     <Text
-                      style={[
-                        styles.chipText,
-                        included && styles.chipTextSelected,
-                      ]}
+                      variant="captionBold"
+                      color={included ? "white" : "secondary"}
                     >
                       {included ? "✓ " : ""}{p.display_name}
                     </Text>
@@ -280,111 +273,102 @@ export default function ExpenseScreen() {
             </View>
           )}
           {selectedParticipants.length === 0 ? (
-            <Text style={styles.fieldError}>
+            <Text variant="caption" color="negative" style={styles.splitError}>
               Select at least one participant to split the expense
             </Text>
           ) : null}
+        </Section>
 
-          {/* Split preview */}
-          {previewSplits.length > 0 ? (
-            <View style={styles.splitPreview}>
-              <Text style={styles.splitTitle}>
+        {/* Split preview */}
+        {previewSplits.length > 0 ? (
+          <Section title="Split preview">
+            <Card variant="default" padding="compact">
+              <Text variant="caption" color="secondary" style={styles.splitPreviewHeader}>
                 Equal split among {selectedParticipants.length}{" "}
-                {selectedParticipants.length === 1 ? "participant" : "participants"}:
+                {selectedParticipants.length === 1 ? "participant" : "participants"}
               </Text>
-              {previewSplits.map((s) => {
+              <Spacer size="sm" />
+              {previewSplits.map((s, idx) => {
                 const name =
                   participants.find((p) => p.id === s.participant_id)
                     ?.display_name ?? "Unknown";
                 return (
-                  <View key={s.participant_id} style={styles.splitRow}>
-                    <Text style={styles.splitName}>{name}</Text>
-                    <Text style={styles.splitAmount}>{s.share_amount}</Text>
+                  <View key={s.participant_id}>
+                    {idx > 0 && <Divider subtle />}
+                    <View style={styles.splitRow}>
+                      <Text variant="body" numberOfLines={1} style={styles.splitName}>
+                        {name}
+                      </Text>
+                      <MoneyAmount
+                        amount={parseFloat(s.share_amount)}
+                        currency={game?.currency ?? "ILS"}
+                        size="sm"
+                      />
+                    </View>
                   </View>
                 );
               })}
-            </View>
-          ) : null}
+            </Card>
+          </Section>
+        ) : null}
 
-          <Pressable
-            style={[
-              styles.btn,
-              styles.btnPrimary,
-              { marginTop: 16 },
-              !canSubmit && styles.btnDisabled,
-            ]}
-            onPress={handleSubmit((v) => mutation.mutate(v))}
-            disabled={!canSubmit}
-          >
-            {mutation.isPending ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <Text style={styles.btnText}>Add Expense</Text>
-            )}
-          </Pressable>
-        </ScrollView>
-      </KeyboardAvoidingView>
+        <Spacer size="md" />
+
+        {/* Submit */}
+        <Button
+          label="Add Expense"
+          variant="primary"
+          size="lg"
+          fullWidth
+          loading={mutation.isPending}
+          disabled={!canSubmit}
+          onPress={handleSubmit((v) => mutation.mutate(v))}
+        />
+
+        <Spacer size="4xl" />
+      </Screen>
     </>
   );
 }
 
 const styles = StyleSheet.create({
-  flex: { flex: 1 },
-  container: { padding: 20, paddingBottom: 48 },
   errorBanner: {
-    backgroundColor: "#4a1020",
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 16,
-  },
-  errorBannerText: { color: "#ff6b6b", fontSize: 14 },
-  field: { marginBottom: 16 },
-  label: { color: "#ccc", fontSize: 13, fontWeight: "600", marginBottom: 8 },
-  input: {
-    backgroundColor: "#16213e",
     borderWidth: 1,
-    borderColor: "#2a2a5a",
-    borderRadius: 8,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    color: "#fff",
-    fontSize: 16,
+    borderColor: tokens.color.semantic.negative,
   },
-  inputError: { borderColor: "#e94560" },
-  fieldError: { color: "#e94560", fontSize: 12, marginTop: 4 },
-  chipRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 16 },
-  chip: {
-    borderWidth: 1,
-    borderColor: "#2a2a5a",
-    borderRadius: 20,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-  },
-  chipSelected: { backgroundColor: "#e94560", borderColor: "#e94560" },
-  chipIncluded: { backgroundColor: "#1a4a2e", borderColor: "#2ecc71" },
-  chipText: { color: "#aaa", fontSize: 13 },
-  chipTextSelected: { color: "#fff", fontWeight: "600" },
-  splitPreview: {
-    backgroundColor: "#16213e",
-    borderRadius: 8,
-    padding: 12,
-    marginTop: 4,
-    marginBottom: 4,
-  },
-  splitTitle: { color: "#888", fontSize: 12, marginBottom: 8 },
-  splitRow: {
+  splitChipRow: {
     flexDirection: "row",
-    justifyContent: "space-between",
-    paddingVertical: 4,
+    flexWrap: "wrap",
+    gap: tokens.spacing.sm,
   },
-  splitName: { color: "#ccc", fontSize: 13 },
-  splitAmount: { color: "#fff", fontSize: 13, fontWeight: "500" },
-  btn: {
-    borderRadius: 8,
-    paddingVertical: 14,
+  splitChip: {
+    paddingHorizontal: tokens.spacing.base,
+    paddingVertical: tokens.spacing.sm,
+    borderRadius: tokens.radius.lg,
+    backgroundColor: tokens.color.bg.surface,
+    borderWidth: 1,
+    borderColor: tokens.color.border.default,
+    minHeight: tokens.size.touchTarget,
+    justifyContent: "center",
     alignItems: "center",
   },
-  btnPrimary: { backgroundColor: "#e94560" },
-  btnDisabled: { opacity: 0.5 },
-  btnText: { color: "#fff", fontSize: 15, fontWeight: "600" },
+  splitChipIncluded: {
+    backgroundColor: tokens.color.accent.muted,
+    borderColor: tokens.color.accent.primary,
+  },
+  splitError: {
+    marginTop: tokens.spacing.xs,
+  },
+  splitPreviewHeader: {
+    marginBottom: tokens.spacing.xs,
+  },
+  splitRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: tokens.spacing.sm,
+  },
+  splitName: {
+    flex: 1,
+  },
 });

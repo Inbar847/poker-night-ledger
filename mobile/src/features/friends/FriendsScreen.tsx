@@ -9,18 +9,26 @@
 import { useRouter } from "expo-router";
 import { useState } from "react";
 import {
-  ActivityIndicator,
   FlatList,
-  Image,
   Pressable,
   RefreshControl,
   StyleSheet,
-  Text,
   View,
 } from "react-native";
 
+import {
+  Avatar,
+  Card,
+  EmptyState,
+  FeltBackground,
+  Row,
+  Skeleton,
+  Spacer,
+  Text,
+} from "@/components";
 import FriendRequestCard from "@/features/friends/FriendRequestCard";
 import { useFriends, useIncomingFriendRequests } from "@/hooks/useFriends";
+import { tokens } from "@/theme";
 import type { FriendEntry } from "@/types/friendship";
 
 type Tab = "friends" | "requests";
@@ -32,23 +40,42 @@ type Tab = "friends" | "requests";
 function FriendItem({ entry }: { entry: FriendEntry }) {
   const router = useRouter();
   const name = entry.friend.full_name ?? "Unknown Player";
-  const initials = name.charAt(0).toUpperCase();
 
   return (
-    <Pressable
-      style={({ pressed }) => [styles.friendItem, pressed && styles.friendItemPressed]}
+    <Card
+      variant="default"
+      padding="compact"
       onPress={() => router.push(`/public-profile/${entry.friend.id}`)}
     >
-      {entry.friend.profile_image_url ? (
-        <Image source={{ uri: entry.friend.profile_image_url }} style={styles.avatar} />
-      ) : (
-        <View style={styles.avatarFallback}>
-          <Text style={styles.avatarInitials}>{initials}</Text>
+      <Row align="center" gap="md">
+        <Avatar
+          uri={entry.friend.profile_image_url}
+          name={name}
+          size="md"
+        />
+        <View style={styles.nameBlock}>
+          <Text variant="bodyBold" numberOfLines={1}>{name}</Text>
         </View>
-      )}
-      <Text style={styles.friendName}>{name}</Text>
-      <Text style={styles.chevron}>{"›"}</Text>
-    </Pressable>
+        <Text variant="body" color="muted">{"\u203A"}</Text>
+      </Row>
+    </Card>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Loading skeleton
+// ---------------------------------------------------------------------------
+
+function FriendsSkeleton() {
+  return (
+    <View style={styles.skeletonContainer}>
+      {[1, 2, 3, 4, 5].map((i) => (
+        <View key={i}>
+          <Skeleton height={60} radius={tokens.radius.lg} />
+          <Spacer size="sm" />
+        </View>
+      ))}
+    </View>
   );
 }
 
@@ -57,6 +84,7 @@ function FriendItem({ entry }: { entry: FriendEntry }) {
 // ---------------------------------------------------------------------------
 
 export default function FriendsScreen() {
+  const router = useRouter();
   const [activeTab, setActiveTab] = useState<Tab>("friends");
 
   const friendsQuery = useFriends();
@@ -79,15 +107,19 @@ export default function FriendsScreen() {
   }
 
   return (
-    <View style={styles.container}>
+    <FeltBackground>
       {/* Find Players CTA */}
-      <Pressable
-        style={styles.findPlayersBtn}
+      <Card
+        variant="default"
+        padding="compact"
         onPress={() => router.push("/search")}
+        style={styles.findPlayersCard}
       >
-        <Text style={styles.findPlayersIcon}>🔍</Text>
-        <Text style={styles.findPlayersText}>Find Players</Text>
-      </Pressable>
+        <Row align="center" gap="sm">
+          <Text variant="body" color="secondary">{"\uD83D\uDD0D"}</Text>
+          <Text variant="bodyBold" color="primary">Find Players</Text>
+        </Row>
+      </Card>
 
       {/* Tab bar */}
       <View style={styles.tabBar}>
@@ -95,7 +127,10 @@ export default function FriendsScreen() {
           style={[styles.tab, activeTab === "friends" && styles.tabActive]}
           onPress={() => setActiveTab("friends")}
         >
-          <Text style={[styles.tabText, activeTab === "friends" && styles.tabTextActive]}>
+          <Text
+            variant="captionBold"
+            color={activeTab === "friends" ? "primary" : "secondary"}
+          >
             Friends {friendsQuery.data ? `(${friendsQuery.data.length})` : ""}
           </Text>
         </Pressable>
@@ -104,194 +139,135 @@ export default function FriendsScreen() {
           style={[styles.tab, activeTab === "requests" && styles.tabActive]}
           onPress={() => setActiveTab("requests")}
         >
-          <View style={styles.tabRow}>
-            <Text style={[styles.tabText, activeTab === "requests" && styles.tabTextActive]}>
+          <Row align="center" gap="xs">
+            <Text
+              variant="captionBold"
+              color={activeTab === "requests" ? "primary" : "secondary"}
+            >
               Requests
             </Text>
             {incomingCount > 0 && (
               <View style={styles.badge}>
-                <Text style={styles.badgeText}>{incomingCount}</Text>
+                <Text variant="captionBold" color="white" style={styles.badgeText}>
+                  {incomingCount}
+                </Text>
               </View>
             )}
-          </View>
+          </Row>
         </Pressable>
       </View>
 
       {/* Content */}
       {isLoading ? (
-        <View style={styles.centered}>
-          <ActivityIndicator color="#e94560" />
-        </View>
+        <FriendsSkeleton />
       ) : activeTab === "friends" ? (
         <FlatList
           data={friendsQuery.data ?? []}
           keyExtractor={(item) => item.friendship_id}
           contentContainerStyle={styles.list}
+          showsVerticalScrollIndicator={false}
           refreshControl={
             <RefreshControl
               refreshing={isRefreshing}
               onRefresh={handleRefresh}
-              tintColor="#e94560"
+              tintColor={tokens.color.accent.primary}
             />
           }
           ListEmptyComponent={
-            <View style={styles.centered}>
-              <Text style={styles.emptyText}>No friends yet.</Text>
-              <Text style={styles.emptyHint}>
-                Search for players from their profile and send a friend request.
-              </Text>
-            </View>
+            <EmptyState
+              title="No friends yet"
+              description="Search for players and send a friend request"
+            />
           }
-          renderItem={({ item }) => <FriendItem entry={item} />}
+          renderItem={({ item }) => (
+            <View style={styles.rowWrapper}>
+              <FriendItem entry={item} />
+            </View>
+          )}
         />
       ) : (
         <FlatList
           data={requestsQuery.data ?? []}
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.list}
+          showsVerticalScrollIndicator={false}
           refreshControl={
             <RefreshControl
               refreshing={isRefreshing}
               onRefresh={handleRefresh}
-              tintColor="#e94560"
+              tintColor={tokens.color.accent.primary}
             />
           }
           ListEmptyComponent={
-            <View style={styles.centered}>
-              <Text style={styles.emptyText}>No pending requests.</Text>
-            </View>
+            <EmptyState
+              title="No pending requests"
+              description="Friend requests will appear here"
+            />
           }
-          renderItem={({ item }) => <FriendRequestCard request={item} />}
+          renderItem={({ item }) => (
+            <View style={styles.rowWrapper}>
+              <FriendRequestCard request={item} />
+            </View>
+          )}
         />
       )}
-    </View>
+    </FeltBackground>
   );
 }
 
+// ---------------------------------------------------------------------------
+// Styles
+// ---------------------------------------------------------------------------
+
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#1a1a2e",
-  },
-  findPlayersBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    margin: 12,
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    backgroundColor: "#16213e",
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: "#2a2a5a",
-  },
-  findPlayersIcon: { fontSize: 16 },
-  findPlayersText: {
-    color: "#e94560",
-    fontSize: 14,
-    fontWeight: "600",
+  findPlayersCard: {
+    marginHorizontal: tokens.spacing.lg,
+    marginTop: tokens.spacing.md,
+    marginBottom: tokens.spacing.sm,
   },
   tabBar: {
     flexDirection: "row",
     borderBottomWidth: 1,
-    borderBottomColor: "#2a2a5a",
+    borderBottomColor: tokens.color.border.subtle,
+    marginHorizontal: tokens.spacing.lg,
   },
   tab: {
     flex: 1,
     alignItems: "center",
-    paddingVertical: 14,
+    paddingVertical: tokens.spacing.md,
   },
   tabActive: {
     borderBottomWidth: 2,
-    borderBottomColor: "#e94560",
-  },
-  tabText: {
-    color: "#888",
-    fontSize: 14,
-    fontWeight: "600",
-  },
-  tabTextActive: {
-    color: "#ffffff",
-  },
-  tabRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
+    borderBottomColor: tokens.color.accent.primary,
   },
   badge: {
-    backgroundColor: "#e94560",
-    borderRadius: 10,
+    backgroundColor: tokens.color.semantic.negative,
+    borderRadius: tokens.spacing.sm,
     minWidth: 18,
     height: 18,
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 4,
+    paddingHorizontal: tokens.spacing.xs,
   },
   badgeText: {
-    color: "#ffffff",
     fontSize: 11,
-    fontWeight: "700",
+    lineHeight: 13,
   },
   list: {
-    padding: 16,
+    paddingHorizontal: tokens.spacing.lg,
+    paddingTop: tokens.spacing.md,
+    paddingBottom: tokens.spacing["2xl"],
     flexGrow: 1,
   },
-  centered: {
+  rowWrapper: {
+    marginBottom: tokens.spacing.sm,
+  },
+  nameBlock: {
     flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    padding: 24,
   },
-  emptyText: {
-    color: "#888",
-    fontSize: 15,
-    textAlign: "center",
-    marginBottom: 8,
-  },
-  emptyHint: {
-    color: "#666",
-    fontSize: 13,
-    textAlign: "center",
-    lineHeight: 20,
-  },
-  friendItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#16213e",
-    borderRadius: 10,
-    padding: 12,
-    marginBottom: 10,
-    gap: 12,
-  },
-  friendItemPressed: {
-    opacity: 0.7,
-  },
-  avatar: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-  },
-  avatarFallback: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: "#e94560",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  avatarInitials: {
-    color: "#ffffff",
-    fontWeight: "700",
-    fontSize: 18,
-  },
-  friendName: {
+  skeletonContainer: {
     flex: 1,
-    color: "#ffffff",
-    fontSize: 15,
-    fontWeight: "500",
-  },
-  chevron: {
-    color: "#666",
-    fontSize: 20,
+    padding: tokens.spacing.lg,
+    paddingTop: tokens.spacing.md,
   },
 });

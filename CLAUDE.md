@@ -351,3 +351,27 @@ Phase 4 stages are numbered 24–29.
 All MVP, Phase 2, and Phase 3 behavior is preserved unless `PHASE4_PRODUCT_SPEC.md` explicitly overrides it.
 
 The same "one stage at a time" rule applies. Do not silently continue into the next stage.
+
+---
+
+## Post-Phase-4 (Phase 5)
+
+Phase 4 is complete through Stage 29.
+
+Phase 5 is a **frontend redesign and design-system phase only**. It rebuilds every mobile screen using a shared component library and design token system. **No backend code, API contracts, or data models are changed.**
+
+Before working on any Phase 5 stage, read these docs in addition to the standard three:
+
+14. `docs/PHASE5_PRODUCT_SPEC.md` — Phase 5 design philosophy, principles, and product rules
+15. `docs/PHASE5_ARCHITECTURE.md` — component architecture, token system, and mobile structure changes
+16. `docs/PHASE5_PLAN.md` — stage-by-stage implementation plan (Stages 30–41)
+17. `docs/frontend/DESIGN_LANGUAGE.md` — detailed design language specification
+18. `docs/frontend/COMPONENT_RULES.md` — rules for building and using shared components
+19. `docs/frontend/SCREEN_SPECS.md` — per-screen visual and interaction specifications
+
+Phase 5 stages are numbered 30–41.  
+All MVP, Phase 2, Phase 3, and Phase 4 behavior is preserved. Phase 5 changes **only** the visual presentation layer.
+
+For Phase 5 stages, use the `frontend-phase5-stage` skill instead of the generic `execute-stage` skill. The `frontend-ui-qa` skill is available for verifying design system compliance after screen rebuilds.
+
+The same "one stage at a time" rule applies. Do not silently continue into the next stage.

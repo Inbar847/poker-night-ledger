@@ -1,3 +1,18 @@
+# ---------------------------------------------------------------------------
+# Workaround: platform.machine() hangs on Windows when WMI is unresponsive.
+# SQLAlchemy calls it at import time (util/compat.py:51). Cache the result
+# eagerly using os.environ so the WMI code-path is never reached.
+# ---------------------------------------------------------------------------
+import os
+import platform
+
+if not os.environ.get("PROCESSOR_ARCHITECTURE"):
+    # Fallback: if the env var is somehow missing, try the slow path once
+    pass
+else:
+    _cached_machine = os.environ.get("PROCESSOR_ARCHITECTURE", "AMD64")
+    platform.machine = lambda: _cached_machine  # type: ignore[assignment]
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse

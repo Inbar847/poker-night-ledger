@@ -1,36 +1,42 @@
-import { zodResolver } from "@hookform/resolvers/zod";
-import { Link, useRouter } from "expo-router";
-import { useState } from "react";
-import { useForm } from "react-hook-form";
+/**
+ * Register screen — same cinematic visual family as Login.
+ *
+ * Uses the same video background with a heavier overlay for form
+ * readability. Auth logic is unchanged.
+ */
+
+import { zodResolver } from '@hookform/resolvers/zod';
+import { useRouter } from 'expo-router';
+import { useState } from 'react';
+import { useForm } from 'react-hook-form';
 import {
-  ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
-  Pressable,
   ScrollView,
   StyleSheet,
-  Text,
-  TextInput,
   View,
-} from "react-native";
-import { z } from "zod";
+  StatusBar,
+} from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { z } from 'zod';
 
-import { queryClient } from "@/lib/queryClient";
-import * as authService from "@/services/authService";
-import { useAuthStore } from "@/store/authStore";
+import { AuthVideoBackground, Text, Button, Input, Spacer } from '@/components';
+import { tokens } from '@/theme';
+import { queryClient } from '@/lib/queryClient';
+import * as authService from '@/services/authService';
+import { useAuthStore } from '@/store/authStore';
 
 const schema = z.object({
-  full_name: z.string().min(1, "Name is required"),
-  email: z.string().email("Enter a valid email address"),
-  password: z
-    .string()
-    .min(8, "Password must be at least 8 characters"),
+  full_name: z.string().min(1, 'Name is required'),
+  email: z.string().email('Enter a valid email address'),
+  password: z.string().min(8, 'Password must be at least 8 characters'),
 });
 
 type FormValues = z.infer<typeof schema>;
 
 export default function RegisterScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const { setTokens } = useAuthStore();
   const [serverError, setServerError] = useState<string | null>(null);
 
@@ -41,12 +47,12 @@ export default function RegisterScreen() {
     formState: { errors, isSubmitting },
   } = useForm<FormValues>({
     resolver: zodResolver(schema),
-    defaultValues: { full_name: "", email: "", password: "" },
+    defaultValues: { full_name: '', email: '', password: '' },
   });
 
-  const fullName = watch("full_name");
-  const email = watch("email");
-  const password = watch("password");
+  const fullName = watch('full_name');
+  const email = watch('email');
+  const password = watch('password');
 
   const onSubmit = async (values: FormValues) => {
     setServerError(null);
@@ -56,161 +62,139 @@ export default function RegisterScreen() {
         email: values.email,
         password: values.password,
       });
-      // Clear any stale cache from a prior session before populating the new one.
       queryClient.clear();
       await setTokens(tokens.access_token, tokens.refresh_token);
-      router.replace("/games");
+      router.replace('/games');
     } catch (err) {
-      setServerError(err instanceof Error ? err.message : "Registration failed");
+      setServerError(
+        err instanceof Error ? err.message : 'Registration failed',
+      );
     }
   };
 
   return (
-    <KeyboardAvoidingView
-      style={styles.flex}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
-    >
-      <ScrollView
-        contentContainerStyle={styles.container}
-        keyboardShouldPersistTaps="handled"
+    <AuthVideoBackground overlayOpacity={0.45}>
+      <StatusBar barStyle="light-content" />
+
+      <KeyboardAvoidingView
+        style={styles.flex}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
-        <Text style={styles.title}>Create account</Text>
-        <Text style={styles.subtitle}>Join Poker Night Ledger</Text>
-
-        {serverError ? (
-          <View style={styles.errorBanner}>
-            <Text style={styles.errorBannerText}>{serverError}</Text>
-          </View>
-        ) : null}
-
-        <View style={styles.field}>
-          <Text style={styles.label}>Full name</Text>
-          <TextInput
-            style={[styles.input, errors.full_name && styles.inputError]}
-            placeholder="Alex Smith"
-            placeholderTextColor="#666"
-            autoComplete="name"
-            value={fullName}
-            onChangeText={(v) =>
-              setValue("full_name", v, { shouldValidate: true })
-            }
-          />
-          {errors.full_name ? (
-            <Text style={styles.fieldError}>{errors.full_name.message}</Text>
-          ) : null}
-        </View>
-
-        <View style={styles.field}>
-          <Text style={styles.label}>Email</Text>
-          <TextInput
-            style={[styles.input, errors.email && styles.inputError]}
-            placeholder="you@example.com"
-            placeholderTextColor="#666"
-            autoCapitalize="none"
-            keyboardType="email-address"
-            autoComplete="email"
-            value={email}
-            onChangeText={(v) => setValue("email", v, { shouldValidate: true })}
-          />
-          {errors.email ? (
-            <Text style={styles.fieldError}>{errors.email.message}</Text>
-          ) : null}
-        </View>
-
-        <View style={styles.field}>
-          <Text style={styles.label}>Password</Text>
-          <TextInput
-            style={[styles.input, errors.password && styles.inputError]}
-            placeholder="Min. 8 characters"
-            placeholderTextColor="#666"
-            secureTextEntry
-            autoComplete="new-password"
-            value={password}
-            onChangeText={(v) =>
-              setValue("password", v, { shouldValidate: true })
-            }
-          />
-          {errors.password ? (
-            <Text style={styles.fieldError}>{errors.password.message}</Text>
-          ) : null}
-        </View>
-
-        <Pressable
-          style={[styles.button, isSubmitting && styles.buttonDisabled]}
-          onPress={handleSubmit(onSubmit)}
-          disabled={isSubmitting}
+        <ScrollView
+          style={styles.flex}
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
         >
-          {isSubmitting ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <Text style={styles.buttonText}>Create account</Text>
-          )}
-        </Pressable>
+          <View
+            style={[
+              styles.content,
+              { paddingTop: insets.top + tokens.spacing['5xl'] },
+            ]}
+          >
+            <Text variant="h1" color="primary" align="center">
+              Create account
+            </Text>
 
-        <View style={styles.footer}>
-          <Text style={styles.footerText}>Already have an account? </Text>
-          <Link href="/auth/login" style={styles.link}>
-            Sign in
-          </Link>
-        </View>
-      </ScrollView>
-    </KeyboardAvoidingView>
+            <Spacer size="3xl" />
+
+            {serverError ? (
+              <View style={styles.errorBanner}>
+                <Text variant="caption" color="negative">
+                  {serverError}
+                </Text>
+              </View>
+            ) : null}
+
+            <View style={styles.form}>
+              <Input
+                label="Full name"
+                placeholder="Alex Smith"
+                autoComplete="name"
+                value={fullName}
+                onChangeText={(v) =>
+                  setValue('full_name', v, { shouldValidate: true })
+                }
+                error={errors.full_name?.message}
+              />
+
+              <Spacer size="base" />
+
+              <Input
+                label="Email"
+                placeholder="you@example.com"
+                autoCapitalize="none"
+                keyboardType="email-address"
+                autoComplete="email"
+                value={email}
+                onChangeText={(v) => setValue('email', v, { shouldValidate: true })}
+                error={errors.email?.message}
+              />
+
+              <Spacer size="base" />
+
+              <Input
+                label="Password"
+                placeholder="Min. 8 characters"
+                secureTextEntry
+                autoComplete="new-password"
+                value={password}
+                onChangeText={(v) =>
+                  setValue('password', v, { shouldValidate: true })
+                }
+                error={errors.password?.message}
+              />
+            </View>
+
+            <Spacer size="xl" />
+
+            <Button
+              label="Create Account"
+              variant="primary"
+              size="lg"
+              fullWidth
+              loading={isSubmitting}
+              disabled={isSubmitting}
+              onPress={handleSubmit(onSubmit)}
+            />
+
+            <Spacer size="lg" />
+
+            <Button
+              label="Already have an account? Log in"
+              variant="ghost"
+              size="md"
+              onPress={() => router.push('/auth/login')}
+            />
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </AuthVideoBackground>
   );
 }
 
 const styles = StyleSheet.create({
-  flex: { flex: 1, backgroundColor: "#1a1a2e" },
-  container: {
+  flex: {
+    flex: 1,
+  },
+  scrollContent: {
     flexGrow: 1,
-    padding: 24,
-    justifyContent: "center",
   },
-  title: {
-    fontSize: 28,
-    fontWeight: "bold",
-    color: "#ffffff",
-    marginBottom: 6,
+  content: {
+    flex: 1,
+    paddingHorizontal: tokens.spacing.lg,
+    alignItems: 'center',
   },
-  subtitle: {
-    fontSize: 15,
-    color: "#888",
-    marginBottom: 32,
+  form: {
+    width: '100%',
   },
   errorBanner: {
-    backgroundColor: "#4a1020",
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 16,
-  },
-  errorBannerText: { color: "#ff6b6b", fontSize: 14 },
-  field: { marginBottom: 18 },
-  label: { color: "#cccccc", fontSize: 14, marginBottom: 6 },
-  input: {
-    backgroundColor: "#16213e",
+    backgroundColor: `${tokens.color.semantic.negative}1F`,
+    borderRadius: tokens.radius.md,
+    padding: tokens.spacing.md,
+    marginBottom: tokens.spacing.base,
+    width: '100%',
     borderWidth: 1,
-    borderColor: "#2a2a5a",
-    borderRadius: 8,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    color: "#ffffff",
-    fontSize: 16,
+    borderColor: `${tokens.color.semantic.negative}40`,
   },
-  inputError: { borderColor: "#e94560" },
-  fieldError: { color: "#e94560", fontSize: 12, marginTop: 4 },
-  button: {
-    backgroundColor: "#e94560",
-    borderRadius: 8,
-    paddingVertical: 14,
-    alignItems: "center",
-    marginTop: 8,
-  },
-  buttonDisabled: { opacity: 0.6 },
-  buttonText: { color: "#ffffff", fontSize: 16, fontWeight: "600" },
-  footer: {
-    flexDirection: "row",
-    justifyContent: "center",
-    marginTop: 24,
-  },
-  footerText: { color: "#888" },
-  link: { color: "#e94560", fontWeight: "600" },
 });

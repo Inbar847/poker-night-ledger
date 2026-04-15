@@ -13,6 +13,7 @@ import { Stack, useRouter } from "expo-router";
 import { StyleSheet, Text, View } from "react-native";
 
 import UserSearchInput from "@/components/UserSearchInput";
+import { tokens } from "@/theme";
 import type { UserSearchResult } from "@/types/user";
 
 export default function SearchScreen() {
@@ -42,13 +43,13 @@ export default function SearchScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#1a1a2e",
-    padding: 16,
+    backgroundColor: tokens.color.bg.primary,
+    padding: tokens.spacing.base,
   },
   hint: {
-    color: "#888",
+    color: tokens.color.text.muted,
     fontSize: 13,
-    marginBottom: 12,
+    marginBottom: tokens.spacing.md,
     lineHeight: 18,
   },
 });

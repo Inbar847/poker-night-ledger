@@ -6,24 +6,34 @@
  * a pending game invitation (they must accept before joining).
  *
  * Phase 4 Stage 25: increased height, client-side search filter.
+ * Phase 5 Stage 36: restyled with shared component library and design tokens.
  */
 
 import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import {
-  ActivityIndicator,
   FlatList,
   Modal,
   Pressable,
   StyleSheet,
-  Text,
-  TextInput,
   View,
 } from "react-native";
+
+import {
+  Text,
+  Badge,
+  Spacer,
+  Divider,
+  Skeleton,
+  EmptyState,
+  SearchInput,
+  Avatar,
+} from "@/components";
 
 import { useCreateInvitation } from "@/hooks/useGameInvitations";
 import { queryKeys } from "@/lib/queryKeys";
 import * as friendsService from "@/services/friendsService";
+import { tokens } from "@/theme";
 import type { FriendEntry } from "@/types/friendship";
 
 interface InviteFriendModalProps {
@@ -89,38 +99,53 @@ export default function InviteFriendModal({
       <Pressable style={styles.backdrop} onPress={handleClose} />
 
       <View style={styles.sheet}>
+        {/* Drag handle */}
+        <View style={styles.dragHandle} />
+
         <View style={styles.header}>
-          <Text style={styles.title}>Invite Friend</Text>
-          <Pressable onPress={handleClose} style={styles.closeBtn}>
-            <Text style={styles.closeBtnText}>✕</Text>
+          <Text variant="h3">Invite Friend</Text>
+          <Pressable
+            onPress={handleClose}
+            hitSlop={12}
+            style={styles.closeBtn}
+          >
+            <Text variant="body" color="secondary">✕</Text>
           </Pressable>
         </View>
 
-        <TextInput
-          style={styles.searchInput}
-          placeholder="Search friends..."
-          placeholderTextColor="#666"
+        <Spacer size="sm" />
+        <SearchInput
           value={filter}
           onChangeText={setFilter}
-          autoCorrect={false}
-          autoCapitalize="none"
-          returnKeyType="done"
+          placeholder="Search friends..."
         />
+        <Spacer size="md" />
 
         {isLoading ? (
-          <ActivityIndicator size="small" color="#e94560" style={{ marginTop: 16 }} />
+          <View style={styles.loadingContainer}>
+            <Skeleton height={tokens.size.listItemStandard} />
+            <Spacer size="sm" />
+            <Skeleton height={tokens.size.listItemStandard} />
+            <Spacer size="sm" />
+            <Skeleton height={tokens.size.listItemStandard} />
+          </View>
         ) : friends.length === 0 ? (
-          <Text style={styles.emptyText}>
-            No friends yet. Add friends first to invite them to games.
-          </Text>
+          <EmptyState
+            title="No friends yet"
+            description="Add friends first to invite them to games."
+          />
         ) : filteredFriends.length === 0 ? (
-          <Text style={styles.emptyText}>No friends found.</Text>
+          <EmptyState
+            title="No friends found"
+            description="Try a different search term."
+          />
         ) : (
           <FlatList
             data={filteredFriends}
             keyExtractor={(item) => item.friendship_id}
             style={styles.list}
             keyboardShouldPersistTaps="handled"
+            ItemSeparatorComponent={() => <Divider subtle />}
             renderItem={({ item }) => (
               <Pressable
                 style={({ pressed }) => [
@@ -130,7 +155,8 @@ export default function InviteFriendModal({
                 onPress={() => handleSelect(item)}
                 disabled={createInvitation.isPending}
               >
-                <Text style={styles.friendName}>
+                <Avatar name={item.friend.full_name ?? "?"} size="md" />
+                <Text variant="bodyBold" style={styles.friendName}>
                   {item.friend.full_name ?? "Unknown"}
                 </Text>
               </Pressable>
@@ -138,22 +164,22 @@ export default function InviteFriendModal({
           />
         )}
 
+        {/* Status feedback */}
         {createInvitation.isPending && (
           <View style={styles.statusRow}>
-            <ActivityIndicator size="small" color="#e94560" />
-            <Text style={styles.statusText}>Sending invitation...</Text>
+            <Badge label="Sending..." variant="neutral" />
           </View>
         )}
 
         {createInvitation.isSuccess && (
           <View style={styles.statusRow}>
-            <Text style={styles.successText}>Invitation sent!</Text>
+            <Badge label="Invitation sent!" variant="accent" />
           </View>
         )}
 
         {errorMessage && (
           <View style={styles.statusRow}>
-            <Text style={styles.errorText}>{errorMessage}</Text>
+            <Text variant="caption" color="negative">{errorMessage}</Text>
           </View>
         )}
       </View>
@@ -168,78 +194,53 @@ const styles = StyleSheet.create({
   },
   sheet: {
     flex: 65,
-    backgroundColor: "#0f0e17",
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
-    padding: 20,
-    paddingBottom: 40,
+    backgroundColor: tokens.color.bg.elevated,
+    borderTopLeftRadius: tokens.radius.xl,
+    borderTopRightRadius: tokens.radius.xl,
+    paddingHorizontal: tokens.spacing.lg,
+    paddingBottom: tokens.spacing['3xl'],
+  },
+  dragHandle: {
+    alignSelf: "center",
+    width: tokens.size.dragHandleWidth,
+    height: tokens.size.dragHandleHeight,
+    backgroundColor: tokens.color.border.default,
+    borderRadius: tokens.size.dragHandleHeight / 2,
+    marginTop: tokens.spacing.md,
+    marginBottom: tokens.spacing.base,
   },
   header: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: 8,
-  },
-  title: {
-    color: "#ffffff",
-    fontSize: 18,
-    fontWeight: "700",
   },
   closeBtn: {
-    padding: 4,
+    padding: tokens.spacing.xs,
   },
-  closeBtnText: {
-    color: "#aaa",
-    fontSize: 18,
-  },
-  searchInput: {
-    backgroundColor: "#1a1a3e",
-    color: "#fff",
-    fontSize: 15,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 8,
-    marginBottom: 8,
-  },
-  emptyText: {
-    color: "#555",
-    fontSize: 14,
-    marginTop: 16,
-    textAlign: "center",
+  loadingContainer: {
+    paddingVertical: tokens.spacing.base,
   },
   list: {
     flex: 1,
   },
   friendRow: {
-    paddingVertical: 12,
-    paddingHorizontal: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: "#1a1a3e",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: tokens.spacing.md,
+    paddingVertical: tokens.spacing.md,
+    paddingHorizontal: tokens.spacing.sm,
+    minHeight: tokens.size.listItemStandard,
   },
   friendRowPressed: {
-    opacity: 0.6,
+    opacity: 0.7,
   },
   friendName: {
-    color: "#fff",
-    fontSize: 15,
+    flex: 1,
   },
   statusRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
-    marginTop: 12,
-  },
-  statusText: {
-    color: "#aaa",
-    fontSize: 14,
-  },
-  successText: {
-    color: "#2ecc71",
-    fontSize: 14,
-    fontWeight: "600",
-  },
-  errorText: {
-    color: "#e94560",
-    fontSize: 14,
+    gap: tokens.spacing.sm,
+    marginTop: tokens.spacing.md,
   },
 });

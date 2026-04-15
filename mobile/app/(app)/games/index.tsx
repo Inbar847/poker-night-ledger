@@ -6,58 +6,84 @@
  * Tap a game card to open the game screen.
  */
 
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Stack, useRouter } from "expo-router";
-import {
-  ActivityIndicator,
-  FlatList,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
+import { Alert, FlatList, StyleSheet, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import {
+  Text,
+  Button,
+  Section,
+  Spacer,
+  Skeleton,
+  EmptyState,
+  ErrorState,
+  GameCard,
+  SwipeableGameRow,
+  BottomTabBar,
+  Card,
+  Badge,
+  FeltBackground,
+} from "@/components";
+import { useUnreadCount } from "@/hooks/useNotifications";
 import { queryKeys } from "@/lib/queryKeys";
 import * as gameService from "@/services/gameService";
+import * as userService from "@/services/userService";
 import { useAuthStore } from "@/store/authStore";
+import { tokens } from "@/theme";
 import type { Game } from "@/types/game";
 
-const STATUS_COLOR: Record<string, string> = {
-  lobby: "#f0a500",
-  active: "#2ecc71",
-  closed: "#888888",
-};
+/** Format ISO date to a short readable string. */
+function formatDate(iso: string): string {
+  try {
+    const d = new Date(iso);
+    return d.toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+  } catch {
+    return iso;
+  }
+}
 
-function GameCard({
-  game,
-  onPress,
-}: {
-  game: Game;
-  onPress: () => void;
-}) {
+/** Skeleton loading state matching the dashboard layout. */
+function DashboardSkeleton({ topInset }: { topInset: number }) {
   return (
-    <Pressable style={styles.card} onPress={onPress}>
-      <View style={styles.cardRow}>
-        <Text style={styles.cardTitle} numberOfLines={1}>
-          {game.title}
-        </Text>
-        <View
-          style={[
-            styles.badge,
-            { backgroundColor: STATUS_COLOR[game.status] ?? "#888" },
-          ]}
-        >
-          <Text style={styles.badgeText}>{game.status.toUpperCase()}</Text>
+    <View style={[styles.content, { paddingTop: topInset + tokens.spacing.lg }]}>
+      {/* Greeting skeleton */}
+      <Skeleton width={180} height={28} />
+      <Spacer size="2xl" />
+
+      {/* Active game card skeleton */}
+      <Skeleton width={100} height={18} />
+      <Spacer size="md" />
+      <Skeleton height={100} radius={tokens.radius.xl} />
+      <Spacer size="2xl" />
+
+      {/* Quick actions skeleton */}
+      <View style={styles.actionRow}>
+        <View style={styles.actionHalf}>
+          <Skeleton height={tokens.size.buttonMd} radius={tokens.radius.lg} />
+        </View>
+        <View style={styles.actionHalf}>
+          <Skeleton height={tokens.size.buttonMd} radius={tokens.radius.lg} />
         </View>
       </View>
-      <Text style={styles.cardMeta}>
-        {parseFloat(game.chip_cash_rate).toFixed(4)} {game.currency} / chip
-      </Text>
-    </Pressable>
+      <Spacer size="2xl" />
+
+      {/* Recent games skeleton */}
+      <Skeleton width={120} height={18} />
+      <Spacer size="md" />
+      <Skeleton height={80} radius={tokens.radius.lg} />
+      <Spacer size="md" />
+      <Skeleton height={80} radius={tokens.radius.lg} />
+    </View>
   );
 }
 
-export default function GamesScreen() {
+export default function DashboardScreen() {
   const router = useRouter();
   const userId = useAuthStore((s) => s.userId) ?? "";
 
@@ -71,131 +97,238 @@ export default function GamesScreen() {
     queryFn: gameService.listGames,
   });
 
-  return (
-    <>
-      <Stack.Screen options={{ title: "My Games" }} />
-      <View style={styles.container}>
-        {/* Action row */}
-        <View style={styles.actionRow}>
-          <Pressable
-            style={[styles.btn, styles.btnPrimary, styles.btnHalf]}
-            onPress={() => router.push("/games/create")}
-          >
-            <Text style={styles.btnText}>+ Create Game</Text>
-          </Pressable>
-          <Pressable
-            style={[styles.btn, styles.btnSecondary, styles.btnHalf]}
-            onPress={() => router.push("/games/join")}
-          >
-            <Text style={styles.btnTextSecondary}>Join by Token</Text>
-          </Pressable>
-        </View>
+  const { data: me } = useQuery({
+    queryKey: queryKeys.me(userId),
+    queryFn: userService.getMe,
+    staleTime: 5 * 60_000,
+  });
 
-        {/* Quick links */}
-        <View style={styles.quickLinks}>
-          <Pressable onPress={() => router.push("/profile")}>
-            <Text style={styles.quickLinkText}>My Profile →</Text>
-          </Pressable>
-          <Pressable onPress={() => router.push("/history")}>
-            <Text style={styles.quickLinkText}>History →</Text>
-          </Pressable>
-        </View>
+  const queryClient = useQueryClient();
+  const insets = useSafeAreaInsets();
 
-        {/* Games list */}
-        {isLoading ? (
-          <ActivityIndicator
-            size="large"
-            color="#e94560"
-            style={styles.loader}
-          />
-        ) : error ? (
-          <View style={styles.centered}>
-            <Text style={styles.errorText}>Failed to load games</Text>
-            <Pressable
-              style={[styles.btn, styles.btnPrimary, { marginTop: 12 }]}
-              onPress={() => void refetch()}
+  const hideMutation = useMutation({
+    mutationFn: (gameId: string) => gameService.hideGame(gameId),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.games(userId) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.history(userId) });
+    },
+    onError: (err) => {
+      Alert.alert(
+        "Error",
+        err instanceof Error ? err.message : "Failed to hide game",
+      );
+    },
+  });
+
+  const handleHideGame = (gameId: string, title: string) => {
+    hideMutation.mutate(gameId);
+  };
+
+  const { data: unreadData } = useUnreadCount();
+  const unreadCount = unreadData?.count ?? 0;
+
+  // Split games into active/lobby and recent closed
+  const activeGame = games?.find(
+    (g) => g.status === "active" || g.status === "lobby"
+  );
+  const recentGames = games
+    ?.filter((g) => g.status === "closed")
+    .slice(0, 5);
+
+  const greeting = me?.full_name
+    ? `Hey, ${me.full_name.split(" ")[0]}`
+    : "Welcome back";
+
+  const handleTabPress = (key: string) => {
+    if (key === "home") return; // already here
+    if (key === "profile") router.push("/profile");
+    if (key === "notifications") router.push("/notifications");
+  };
+
+  const renderDashboard = () => {
+    if (isLoading) {
+      return <DashboardSkeleton topInset={insets.top} />;
+    }
+
+    if (error) {
+      return (
+        <ErrorState
+          message="Failed to load games"
+          onRetry={() => void refetch()}
+        />
+      );
+    }
+
+    return (
+      <FlatList
+        data={recentGames ?? []}
+        keyExtractor={(g) => g.id}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={[
+          styles.listContent,
+          { paddingTop: insets.top + tokens.spacing.lg },
+        ]}
+        ListHeaderComponent={
+          <>
+            {/* Greeting */}
+            <Text variant="h1">{greeting}</Text>
+            <Spacer size="xl" />
+
+            {/* Active Game Section */}
+            {activeGame && (
+              <Section title="Live Game">
+                <SwipeableGameRow
+                  disabled={activeGame.status === "active"}
+                  onHide={() => handleHideGame(activeGame.id, activeGame.title)}
+                >
+                  <Card
+                    variant="prominent"
+                    padding="comfortable"
+                    onPress={() => router.push(`/games/${activeGame.id}`)}
+                  >
+                    <View style={styles.activeCardHeader}>
+                      <Text variant="bodyBold" numberOfLines={1} style={styles.flex}>
+                        {activeGame.title}
+                      </Text>
+                      <Badge
+                        label={activeGame.status === "active" ? "LIVE" : "Lobby"}
+                        variant={activeGame.status === "active" ? "accent" : "warning"}
+                      />
+                    </View>
+                    <Spacer size="sm" />
+                    <Text variant="caption" color="secondary">
+                      {parseFloat(activeGame.chip_cash_rate).toFixed(4)}{" "}
+                      {activeGame.currency} / chip
+                    </Text>
+                    <Spacer size="sm" />
+                    <Text variant="caption" color="muted">
+                      Tap to continue
+                    </Text>
+                  </Card>
+                </SwipeableGameRow>
+                <Spacer size="xl" />
+              </Section>
+            )}
+
+            {/* Quick Actions */}
+            <View style={styles.actionRow}>
+              <View style={styles.actionHalf}>
+                <Button
+                  label="Create Game"
+                  variant="primary"
+                  fullWidth
+                  onPress={() => router.push("/games/create")}
+                />
+              </View>
+              <View style={styles.actionHalf}>
+                <Button
+                  label="Join Game"
+                  variant="secondary"
+                  fullWidth
+                  onPress={() => router.push("/games/join")}
+                />
+              </View>
+            </View>
+            <Spacer size="2xl" />
+
+            {/* Recent Games Section header */}
+            {(recentGames?.length ?? 0) > 0 && (
+              <Section
+                title="Recent"
+                action={
+                  <Button
+                    label="See All"
+                    variant="ghost"
+                    size="md"
+                    onPress={() => router.push("/history")}
+                  />
+                }
+              >
+                <View />
+              </Section>
+            )}
+          </>
+        }
+        renderItem={({ item }) => (
+          <View style={styles.gameCardWrapper}>
+            <SwipeableGameRow
+              onHide={() => handleHideGame(item.id, item.title)}
             >
-              <Text style={styles.btnText}>Retry</Text>
-            </Pressable>
-          </View>
-        ) : games && games.length === 0 ? (
-          <View style={styles.centered}>
-            <Text style={styles.emptyText}>No games yet.</Text>
-            <Text style={styles.emptySubText}>
-              Create one or join via an invite token.
-            </Text>
-          </View>
-        ) : (
-          <FlatList
-            data={games}
-            keyExtractor={(g) => g.id}
-            renderItem={({ item }) => (
               <GameCard
-                game={item}
+                title={item.title}
+                date={formatDate(item.created_at)}
+                status={item.status}
+                currency={item.currency}
                 onPress={() => router.push(`/games/${item.id}`)}
               />
-            )}
-            contentContainerStyle={{ paddingBottom: 40 }}
-          />
+            </SwipeableGameRow>
+          </View>
         )}
-      </View>
-    </>
+        ListEmptyComponent={
+          !activeGame ? (
+            <EmptyState
+              title="No games yet"
+              description="Create your first poker night"
+              action={{
+                label: "Create Game",
+                onPress: () => router.push("/games/create"),
+              }}
+            />
+          ) : null
+        }
+      />
+    );
+  };
+
+  return (
+    <FeltBackground>
+      <Stack.Screen options={{ headerShown: false }} />
+
+      <View style={styles.main}>{renderDashboard()}</View>
+
+      <BottomTabBar
+        activeTab="home"
+        onTabPress={handleTabPress}
+        notificationCount={unreadCount}
+      />
+    </FeltBackground>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 16 },
+  container: {
+    flex: 1,
+  },
+  main: {
+    flex: 1,
+  },
+  content: {
+    flex: 1,
+    paddingHorizontal: tokens.spacing.lg,
+    paddingTop: tokens.spacing['2xl'],
+  },
+  listContent: {
+    paddingHorizontal: tokens.spacing.lg,
+    paddingBottom: tokens.spacing['2xl'],
+    flexGrow: 1,
+  },
+  activeCardHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: tokens.spacing.sm,
+  },
+  flex: {
+    flex: 1,
+  },
   actionRow: {
     flexDirection: "row",
-    gap: 12,
-    marginBottom: 8,
+    gap: tokens.spacing.md,
   },
-  btn: {
-    borderRadius: 8,
-    paddingVertical: 13,
-    alignItems: "center",
-  },
-  btnPrimary: { backgroundColor: "#e94560" },
-  btnSecondary: { backgroundColor: "#2a2a5a" },
-  btnHalf: { flex: 1 },
-  btnText: { color: "#fff", fontSize: 14, fontWeight: "600" },
-  btnTextSecondary: { color: "#ccc", fontSize: 14 },
-  quickLinks: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    paddingVertical: 6,
-    marginBottom: 12,
-  },
-  quickLinkText: { color: "#888", fontSize: 13 },
-  loader: { marginTop: 48 },
-  centered: { flex: 1, alignItems: "center", justifyContent: "center" },
-  errorText: { color: "#ff6b6b", fontSize: 15 },
-  emptyText: { color: "#fff", fontSize: 16, fontWeight: "600" },
-  emptySubText: { color: "#888", fontSize: 13, marginTop: 6, textAlign: "center" },
-  card: {
-    backgroundColor: "#16213e",
-    borderRadius: 10,
-    padding: 14,
-    marginBottom: 10,
-  },
-  cardRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 4,
-  },
-  cardTitle: {
-    color: "#fff",
-    fontSize: 15,
-    fontWeight: "600",
+  actionHalf: {
     flex: 1,
-    marginRight: 8,
   },
-  badge: {
-    borderRadius: 6,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
+  gameCardWrapper: {
+    marginBottom: tokens.spacing.md,
   },
-  badgeText: { color: "#fff", fontSize: 11, fontWeight: "700" },
-  cardMeta: { color: "#888", fontSize: 12 },
 });

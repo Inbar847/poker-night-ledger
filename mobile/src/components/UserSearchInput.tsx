@@ -30,6 +30,7 @@ import {
 
 import { queryKeys } from "@/lib/queryKeys";
 import { searchUsers } from "@/services/userService";
+import { tokens } from "@/theme";
 import type { UserSearchResult } from "@/types/user";
 
 interface UserSearchInputProps {
@@ -83,12 +84,12 @@ export default function UserSearchInput({
           value={inputValue}
           onChangeText={setInputValue}
           placeholder={placeholder}
-          placeholderTextColor="#888"
+          placeholderTextColor={tokens.color.text.muted}
           autoCapitalize="none"
           autoCorrect={false}
           returnKeyType="search"
         />
-        {isFetching && <ActivityIndicator size="small" color="#e94560" style={styles.spinner} />}
+        {isFetching && <ActivityIndicator size="small" color={tokens.color.accent.primary} style={styles.spinner} />}
       </View>
 
       {showResults && results.length === 0 && !isFetching && (
@@ -129,64 +130,64 @@ const styles = StyleSheet.create({
   inputRow: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#16213e",
-    borderRadius: 8,
+    backgroundColor: tokens.color.bg.elevated,
+    borderRadius: tokens.radius.md,
     borderWidth: 1,
-    borderColor: "#0f3460",
-    paddingHorizontal: 12,
+    borderColor: tokens.color.border.default,
+    paddingHorizontal: tokens.spacing.md,
   },
   input: {
     flex: 1,
-    color: "#ffffff",
+    color: tokens.color.text.primary,
     fontSize: 16,
-    paddingVertical: 12,
+    paddingVertical: tokens.spacing.md,
   },
   spinner: {
-    marginLeft: 8,
+    marginLeft: tokens.spacing.sm,
   },
   resultList: {
-    backgroundColor: "#16213e",
-    borderRadius: 8,
+    backgroundColor: tokens.color.bg.elevated,
+    borderRadius: tokens.radius.md,
     borderWidth: 1,
-    borderColor: "#0f3460",
+    borderColor: tokens.color.border.default,
     marginTop: 4,
     maxHeight: 240,
   },
   resultItem: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 12,
+    paddingHorizontal: tokens.spacing.md,
     paddingVertical: 10,
     borderBottomWidth: 1,
-    borderBottomColor: "#0f3460",
+    borderBottomColor: tokens.color.border.subtle,
   },
   resultItemPressed: {
-    backgroundColor: "#0f3460",
+    backgroundColor: tokens.color.bg.surface,
   },
   avatar: {
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: "#e94560",
+    backgroundColor: tokens.color.accent.primary,
     alignItems: "center",
     justifyContent: "center",
-    marginRight: 12,
+    marginRight: tokens.spacing.md,
   },
   avatarText: {
-    color: "#ffffff",
+    color: tokens.color.white,
     fontWeight: "700",
     fontSize: 16,
   },
   resultName: {
-    color: "#ffffff",
+    color: tokens.color.text.primary,
     fontSize: 15,
   },
   emptyState: {
-    paddingVertical: 12,
+    paddingVertical: tokens.spacing.md,
     alignItems: "center",
   },
   emptyText: {
-    color: "#888",
+    color: tokens.color.text.muted,
     fontSize: 14,
   },
 });

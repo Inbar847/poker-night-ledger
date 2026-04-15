@@ -12,18 +12,27 @@ import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import {
-  ActivityIndicator,
   Alert,
-  KeyboardAvoidingView,
-  Platform,
   Pressable,
-  ScrollView,
   StyleSheet,
-  Text,
-  TextInput,
   View,
 } from "react-native";
 import { z } from "zod";
+
+import {
+  Screen,
+  Section,
+  Card,
+  Text,
+  Button,
+  Spacer,
+  Divider,
+  Row,
+  Badge,
+  Skeleton,
+  NumericInput,
+  currencySymbol,
+} from "@/components";
 
 import {
   useCreateClosedBuyIn,
@@ -34,6 +43,7 @@ import { cashToChips, chipsToCash } from "@/lib/buyInAutofill";
 import { queryKeys } from "@/lib/queryKeys";
 import * as gameService from "@/services/gameService";
 import * as ledgerService from "@/services/ledgerService";
+import { tokens } from "@/theme";
 import type { BuyIn, BuyInType, Participant } from "@/types/game";
 
 // ---------------------------------------------------------------------------
@@ -54,8 +64,12 @@ function EditBuyInRow({
   gameId: string;
 }) {
   const [editing, setEditing] = useState(false);
-  const [cashVal, setCashVal] = useState(parseFloat(buyIn.cash_amount).toFixed(2));
-  const [chipsVal, setChipsVal] = useState(parseFloat(buyIn.chips_amount).toFixed(2));
+  const [cashVal, setCashVal] = useState(
+    parseFloat(buyIn.cash_amount).toFixed(2),
+  );
+  const [chipsVal, setChipsVal] = useState(
+    parseFloat(buyIn.chips_amount).toFixed(2),
+  );
 
   const updateMutation = useUpdateClosedBuyIn(gameId);
   const deleteMutation = useDeleteClosedBuyIn(gameId);
@@ -102,7 +116,10 @@ function EditBuyInRow({
       {
         onSuccess: () => setEditing(false),
         onError: (err) =>
-          Alert.alert("Error", err instanceof Error ? err.message : "Failed to update"),
+          Alert.alert(
+            "Error",
+            err instanceof Error ? err.message : "Failed to update",
+          ),
       },
     );
   }
@@ -110,7 +127,7 @@ function EditBuyInRow({
   function handleDelete() {
     Alert.alert(
       "Delete Buy-In",
-      `Delete ${participantName}'s ${buyIn.buy_in_type} buy-in of ${currency} ${parseFloat(buyIn.cash_amount).toFixed(2)}?`,
+      `Delete ${participantName}'s ${buyIn.buy_in_type} buy-in of ${currencySymbol(currency)}${parseFloat(buyIn.cash_amount).toFixed(2)}?`,
       [
         { text: "Cancel", style: "cancel" },
         {
@@ -119,7 +136,10 @@ function EditBuyInRow({
           onPress: () =>
             deleteMutation.mutate(buyIn.id, {
               onError: (err) =>
-                Alert.alert("Error", err instanceof Error ? err.message : "Failed to delete"),
+                Alert.alert(
+                  "Error",
+                  err instanceof Error ? err.message : "Failed to delete",
+                ),
             }),
         },
       ],
@@ -130,77 +150,91 @@ function EditBuyInRow({
 
   if (editing) {
     return (
-      <View style={styles.editCard}>
-        <Text style={styles.editCardTitle}>
-          {participantName} — {buyIn.buy_in_type}
-        </Text>
-        <View style={styles.editRow}>
-          <View style={styles.editField}>
-            <Text style={styles.editFieldLabel}>Cash ({currency})</Text>
-            <TextInput
-              style={styles.editInput}
-              keyboardType="decimal-pad"
+      <Card style={[rowStyles.card, rowStyles.cardEditing]}>
+        <Row justify="between" align="center">
+          <Text variant="bodyBold">{participantName}</Text>
+          <Badge
+            label={buyIn.buy_in_type}
+            variant="neutral"
+          />
+        </Row>
+
+        <Spacer size="md" />
+        <View style={rowStyles.inputRow}>
+          <View style={rowStyles.inputField}>
+            <NumericInput
               value={cashVal}
               onChangeText={handleCashChange}
+              prefix={currencySymbol(currency)}
+              decimal
             />
           </View>
-          <View style={styles.editField}>
-            <Text style={styles.editFieldLabel}>Chips</Text>
-            <TextInput
-              style={styles.editInput}
-              keyboardType="decimal-pad"
+          <View style={rowStyles.inputField}>
+            <NumericInput
               value={chipsVal}
               onChangeText={handleChipsChange}
+              suffix="chips"
+              decimal
             />
           </View>
         </View>
-        <View style={styles.editActions}>
-          <Pressable
-            style={[styles.smallBtn, styles.btnPrimary, isPending && styles.btnDisabled]}
-            onPress={handleSave}
-            disabled={isPending}
-          >
-            {updateMutation.isPending ? (
-              <ActivityIndicator size="small" color="#fff" />
-            ) : (
-              <Text style={styles.btnText}>Save</Text>
-            )}
-          </Pressable>
-          <Pressable
-            style={[styles.smallBtn, styles.btnSecondary]}
-            onPress={() => setEditing(false)}
-          >
-            <Text style={styles.btnTextSecondary}>Cancel</Text>
-          </Pressable>
-        </View>
-      </View>
+
+        <Spacer size="md" />
+        <Row gap="sm">
+          <View style={rowStyles.actionFlex}>
+            <Button
+              label="Save"
+              variant="primary"
+              fullWidth
+              loading={updateMutation.isPending}
+              disabled={isPending}
+              onPress={handleSave}
+            />
+          </View>
+          <View style={rowStyles.actionFlex}>
+            <Button
+              label="Cancel"
+              variant="secondary"
+              fullWidth
+              onPress={() => setEditing(false)}
+            />
+          </View>
+        </Row>
+      </Card>
     );
   }
 
   return (
-    <View style={styles.buyInRow}>
-      <View style={{ flex: 1 }}>
-        <Text style={styles.buyInName}>
-          {participantName}
-          <Text style={styles.buyInMeta}> ({buyIn.buy_in_type})</Text>
-        </Text>
-        <Text style={styles.buyInAmount}>
-          {currency} {parseFloat(buyIn.cash_amount).toFixed(2)} — {parseFloat(buyIn.chips_amount).toFixed(0)} chips
-        </Text>
-      </View>
-      <View style={styles.rowActions}>
-        <Pressable style={styles.actionBtn} onPress={() => setEditing(true)}>
-          <Text style={styles.actionBtnText}>Edit</Text>
-        </Pressable>
-        <Pressable
-          style={[styles.actionBtn, styles.actionBtnDanger]}
-          onPress={handleDelete}
-          disabled={deleteMutation.isPending}
-        >
-          <Text style={styles.actionBtnTextDanger}>Del</Text>
-        </Pressable>
-      </View>
-    </View>
+    <Card style={rowStyles.card}>
+      <Row justify="between" align="center">
+        <View style={rowStyles.nameColumn}>
+          <Row gap="sm" align="center">
+            <Text variant="bodyBold" numberOfLines={1}>
+              {participantName}
+            </Text>
+            <Badge label={buyIn.buy_in_type} variant="neutral" />
+          </Row>
+          <Spacer size="xs" />
+          <Text variant="caption" color="secondary">
+            {currencySymbol(currency)}{parseFloat(buyIn.cash_amount).toFixed(2)} —{" "}
+            {parseFloat(buyIn.chips_amount).toFixed(0)} chips
+          </Text>
+        </View>
+        <Row gap="sm">
+          <Button
+            label="Edit"
+            variant="secondary"
+            onPress={() => setEditing(true)}
+          />
+          <Button
+            label="Del"
+            variant="destructive"
+            disabled={deleteMutation.isPending}
+            onPress={handleDelete}
+          />
+        </Row>
+      </Row>
+    </Card>
   );
 }
 
@@ -232,7 +266,9 @@ function AddBuyInForm({
   participants: Participant[];
   chipCashRate: number;
 }) {
-  const [selectedParticipant, setSelectedParticipant] = useState<string | null>(null);
+  const [selectedParticipant, setSelectedParticipant] = useState<string | null>(
+    null,
+  );
   const [buyInType, setBuyInType] = useState<BuyInType>("rebuy");
   const createMutation = useCreateClosedBuyIn(gameId);
 
@@ -289,87 +325,104 @@ function AddBuyInForm({
           setSelectedParticipant(null);
         },
         onError: (err) =>
-          Alert.alert("Error", err instanceof Error ? err.message : "Failed to add buy-in"),
+          Alert.alert(
+            "Error",
+            err instanceof Error ? err.message : "Failed to add buy-in",
+          ),
       },
     );
   }
 
   return (
-    <View style={styles.addSection}>
-      <Text style={styles.sectionTitle}>Add Buy-In</Text>
-
-      <Text style={styles.label}>Participant</Text>
-      <View style={styles.chipRow}>
-        {participants.map((p) => (
-          <Pressable
-            key={p.id}
-            style={[styles.chip, selectedParticipant === p.id && styles.chipSelected]}
-            onPress={() => setSelectedParticipant(p.id)}
-          >
-            <Text
-              style={[styles.chipText, selectedParticipant === p.id && styles.chipTextSelected]}
+    <View>
+      <Section title="Add Buy-In">
+        <Text variant="captionBold" color="secondary">
+          Participant
+        </Text>
+        <Spacer size="sm" />
+        <View style={addStyles.chipRow}>
+          {participants.map((p) => (
+            <Pressable
+              key={p.id}
+              style={[
+                addStyles.chip,
+                selectedParticipant === p.id && addStyles.chipSelected,
+              ]}
+              onPress={() => setSelectedParticipant(p.id)}
             >
-              {p.display_name}
-            </Text>
-          </Pressable>
-        ))}
-      </View>
-
-      <Text style={[styles.label, { marginTop: 12 }]}>Type</Text>
-      <View style={styles.chipRow}>
-        {BUY_IN_TYPES.map((t) => (
-          <Pressable
-            key={t}
-            style={[styles.chip, buyInType === t && styles.chipSelected]}
-            onPress={() => setBuyInType(t)}
-          >
-            <Text style={[styles.chipText, buyInType === t && styles.chipTextSelected]}>
-              {t.charAt(0).toUpperCase() + t.slice(1)}
-            </Text>
-          </Pressable>
-        ))}
-      </View>
-
-      <View style={styles.editRow}>
-        <View style={styles.editField}>
-          <Text style={styles.editFieldLabel}>Cash</Text>
-          <TextInput
-            style={[styles.editInput, errors.cash_amount && styles.inputError]}
-            keyboardType="decimal-pad"
-            placeholder="50.00"
-            placeholderTextColor="#555"
-            value={cashAmount}
-            onChangeText={handleCashChange}
-          />
+              <Text
+                variant="caption"
+                color={selectedParticipant === p.id ? "white" : "secondary"}
+                style={
+                  selectedParticipant === p.id ? { fontWeight: "600" } : undefined
+                }
+              >
+                {p.display_name}
+              </Text>
+            </Pressable>
+          ))}
         </View>
-        <View style={styles.editField}>
-          <Text style={styles.editFieldLabel}>Chips</Text>
-          <TextInput
-            style={[styles.editInput, errors.chips_amount && styles.inputError]}
-            keyboardType="decimal-pad"
-            placeholder="5000"
-            placeholderTextColor="#555"
-            value={chipsAmount}
-            onChangeText={handleChipsChange}
-          />
-        </View>
-      </View>
 
-      <Pressable
-        style={[
-          styles.btn,
-          styles.btnPrimary,
-          (!selectedParticipant || createMutation.isPending) && styles.btnDisabled,
-        ]}
-        onPress={handleSubmit(onSubmit)}
-        disabled={!selectedParticipant || createMutation.isPending}
-      >
-        {createMutation.isPending ? (
-          <ActivityIndicator color="#fff" size="small" />
-        ) : (
-          <Text style={styles.btnText}>Add Buy-In</Text>
-        )}
-      </Pressable>
+        <Spacer size="md" />
+        <Text variant="captionBold" color="secondary">
+          Type
+        </Text>
+        <Spacer size="sm" />
+        <View style={addStyles.chipRow}>
+          {BUY_IN_TYPES.map((t) => (
+            <Pressable
+              key={t}
+              style={[
+                addStyles.chip,
+                buyInType === t && addStyles.chipSelected,
+              ]}
+              onPress={() => setBuyInType(t)}
+            >
+              <Text
+                variant="caption"
+                color={buyInType === t ? "white" : "secondary"}
+                style={buyInType === t ? { fontWeight: "600" } : undefined}
+              >
+                {t.charAt(0).toUpperCase() + t.slice(1)}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+
+        <Spacer size="md" />
+        <View style={rowStyles.inputRow}>
+          <View style={rowStyles.inputField}>
+            <NumericInput
+              value={cashAmount}
+              onChangeText={handleCashChange}
+              prefix={currencySymbol(currency)}
+              placeholder="50.00"
+              decimal
+              error={errors.cash_amount?.message}
+            />
+          </View>
+          <View style={rowStyles.inputField}>
+            <NumericInput
+              value={chipsAmount}
+              onChangeText={handleChipsChange}
+              suffix="chips"
+              placeholder="5000"
+              decimal
+              error={errors.chips_amount?.message}
+            />
+          </View>
+        </View>
+
+        <Spacer size="base" />
+        <Button
+          label="Add Buy-In"
+          variant="primary"
+          fullWidth
+          loading={createMutation.isPending}
+          disabled={!selectedParticipant || createMutation.isPending}
+          onPress={handleSubmit(onSubmit)}
+        />
+      </Section>
     </View>
   );
 }
@@ -410,27 +463,36 @@ export default function EditBuyInsScreen() {
   return (
     <>
       <Stack.Screen options={{ title: "Edit Buy-Ins" }} />
-      <KeyboardAvoidingView
-        style={styles.flex}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-      >
-        <ScrollView
-          contentContainerStyle={styles.container}
-          keyboardShouldPersistTaps="handled"
-        >
-          <View style={styles.infoBanner}>
-            <Text style={styles.infoBannerText}>
-              Editing buy-ins on a closed game. Each change triggers automatic
-              re-settlement and notifies all participants.
-            </Text>
-          </View>
+      <Screen scrollable keyboardAvoiding>
+        <Spacer size="base" />
 
-          <Text style={styles.sectionTitle}>Existing Buy-Ins</Text>
+        {/* Info banner */}
+        <Card style={bannerStyles.info}>
+          <Text variant="caption" color="secondary" style={bannerStyles.text}>
+            Editing buy-ins on a closed game. Each change triggers automatic
+            re-settlement and notifies all participants.
+          </Text>
+        </Card>
 
+        <Spacer size="lg" />
+
+        {/* Existing buy-ins */}
+        <Section title="Existing Buy-Ins">
           {isLoading ? (
-            <ActivityIndicator color="#e94560" />
+            <View style={{ gap: tokens.spacing.md }}>
+              {[1, 2, 3].map((i) => (
+                <Skeleton
+                  key={i}
+                  width="100%"
+                  height={72}
+                  radius={tokens.radius.lg}
+                />
+              ))}
+            </View>
           ) : buyIns.length === 0 ? (
-            <Text style={styles.emptyText}>No buy-ins recorded.</Text>
+            <Text variant="body" color="muted">
+              No buy-ins recorded.
+            </Text>
           ) : (
             buyIns.map((b) => (
               <EditBuyInRow
@@ -443,21 +505,27 @@ export default function EditBuyInsScreen() {
               />
             ))
           )}
+        </Section>
 
-          <AddBuyInForm
-            gameId={id}
-            participants={participants}
-            chipCashRate={chipCashRate}
-          />
+        <Divider spacing={tokens.spacing.lg} />
 
-          <Pressable
-            style={[styles.btn, styles.btnSecondary, { marginTop: 20 }]}
-            onPress={() => router.back()}
-          >
-            <Text style={styles.btnTextSecondary}>Done</Text>
-          </Pressable>
-        </ScrollView>
-      </KeyboardAvoidingView>
+        {/* Add form */}
+        <AddBuyInForm
+          gameId={id}
+          participants={participants}
+          chipCashRate={chipCashRate}
+        />
+
+        <Spacer size="lg" />
+        <Button
+          label="Done"
+          variant="secondary"
+          fullWidth
+          onPress={() => router.back()}
+        />
+
+        <Spacer size="4xl" />
+      </Screen>
     </>
   );
 }
@@ -466,110 +534,57 @@ export default function EditBuyInsScreen() {
 // Styles
 // ---------------------------------------------------------------------------
 
-const styles = StyleSheet.create({
-  flex: { flex: 1 },
-  container: { padding: 16, paddingBottom: 48 },
-  infoBanner: {
-    backgroundColor: "#1a2a1a",
+const bannerStyles = StyleSheet.create({
+  info: {
     borderLeftWidth: 3,
-    borderLeftColor: "#2ecc71",
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 16,
+    borderLeftColor: tokens.color.accent.primary,
   },
-  infoBannerText: { color: "#8fbc8f", fontSize: 13, lineHeight: 18 },
-  sectionTitle: {
-    color: "#aaa",
-    fontSize: 13,
-    fontWeight: "700",
-    textTransform: "uppercase",
-    letterSpacing: 0.8,
-    marginBottom: 10,
-    marginTop: 4,
+  text: {
+    // lineHeight inherited from Text variant="caption"
   },
-  emptyText: { color: "#555", fontSize: 13, marginBottom: 12 },
-  buyInRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#16213e",
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 8,
+});
+
+const rowStyles = StyleSheet.create({
+  card: {
+    marginBottom: tokens.spacing.md,
   },
-  buyInName: { color: "#fff", fontSize: 14, fontWeight: "600" },
-  buyInMeta: { color: "#888", fontSize: 12, fontWeight: "400" },
-  buyInAmount: { color: "#aaa", fontSize: 13, marginTop: 2 },
-  rowActions: { flexDirection: "row", gap: 6 },
-  actionBtn: {
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 6,
-    backgroundColor: "#2a2a5a",
-  },
-  actionBtnDanger: { backgroundColor: "#4a1020" },
-  actionBtnText: { color: "#ccc", fontSize: 12, fontWeight: "600" },
-  actionBtnTextDanger: { color: "#ff6b6b", fontSize: 12, fontWeight: "600" },
-  editCard: {
-    backgroundColor: "#16213e",
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 8,
+  cardEditing: {
     borderWidth: 1,
-    borderColor: "#e94560",
+    borderColor: tokens.color.accent.primary,
   },
-  editCardTitle: { color: "#fff", fontSize: 14, fontWeight: "600", marginBottom: 8 },
-  editRow: {
+  nameColumn: {
+    flex: 1,
+    marginRight: tokens.spacing.md,
+  },
+  inputRow: {
     flexDirection: "row",
-    gap: 10,
-    marginTop: 8,
+    gap: tokens.spacing.md,
   },
-  editField: { flex: 1 },
-  editFieldLabel: { color: "#888", fontSize: 12, marginBottom: 4 },
-  editInput: {
-    backgroundColor: "#0f0e17",
-    borderWidth: 1,
-    borderColor: "#2a2a5a",
-    borderRadius: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    color: "#fff",
-    fontSize: 14,
+  inputField: {
+    flex: 1,
   },
-  inputError: { borderColor: "#e94560" },
-  editActions: { flexDirection: "row", gap: 8, marginTop: 10 },
-  smallBtn: {
-    borderRadius: 6,
-    paddingVertical: 8,
-    paddingHorizontal: 14,
-    alignItems: "center",
+  actionFlex: {
+    flex: 1,
   },
-  addSection: {
-    marginTop: 24,
-    borderTopWidth: 1,
-    borderTopColor: "#1a1a3e",
-    paddingTop: 16,
+});
+
+const addStyles = StyleSheet.create({
+  chipRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: tokens.spacing.sm,
   },
-  label: { color: "#ccc", fontSize: 13, fontWeight: "600", marginBottom: 6 },
-  chipRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 4 },
   chip: {
     borderWidth: 1,
-    borderColor: "#2a2a5a",
-    borderRadius: 20,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
+    borderColor: tokens.color.border.default,
+    borderRadius: tokens.radius.xl,
+    paddingHorizontal: tokens.spacing.base,
+    paddingVertical: tokens.spacing.sm,
+    minHeight: tokens.size.touchTarget,
+    justifyContent: "center",
   },
-  chipSelected: { backgroundColor: "#e94560", borderColor: "#e94560" },
-  chipText: { color: "#aaa", fontSize: 13 },
-  chipTextSelected: { color: "#fff", fontWeight: "600" },
-  btn: {
-    borderRadius: 8,
-    paddingVertical: 13,
-    alignItems: "center",
-    marginTop: 8,
+  chipSelected: {
+    backgroundColor: tokens.color.accent.primary,
+    borderColor: tokens.color.accent.primary,
   },
-  btnPrimary: { backgroundColor: "#e94560" },
-  btnSecondary: { backgroundColor: "#2a2a5a" },
-  btnDisabled: { opacity: 0.5 },
-  btnText: { color: "#fff", fontSize: 14, fontWeight: "600" },
-  btnTextSecondary: { color: "#ccc", fontSize: 14 },
 });

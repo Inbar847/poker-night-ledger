@@ -16,16 +16,23 @@
 import { useRouter } from "expo-router";
 import { useCallback } from "react";
 import {
-  ActivityIndicator,
   FlatList,
-  Pressable,
   RefreshControl,
   StyleSheet,
-  Text,
   View,
 } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import {
+  Button,
+  Divider,
+  EmptyState,
+  Row,
+  Skeleton,
+  Spacer,
+  Text,
+} from "@/components";
 import NotificationItem from "@/features/notifications/NotificationItem";
 import {
   useDeleteAllNotifications,
@@ -34,10 +41,27 @@ import {
   useNotifications,
   useUnreadCount,
 } from "@/hooks/useNotifications";
+import { tokens } from "@/theme";
 import type { AppNotification } from "@/types/notification";
+
+function NotificationsSkeleton({ topInset }: { topInset: number }) {
+  return (
+    <View style={[styles.skeletonContainer, { paddingTop: topInset + tokens.spacing.base }]}>
+      <Skeleton width={160} height={28} />
+      <Spacer size="xl" />
+      {[1, 2, 3, 4, 5].map((i) => (
+        <View key={i}>
+          <Skeleton height={72} radius={tokens.radius.lg} />
+          <Spacer size="sm" />
+        </View>
+      ))}
+    </View>
+  );
+}
 
 export default function NotificationsScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
 
   const { data: notifications = [], isLoading, refetch, isRefetching } = useNotifications();
   const { data: unreadData } = useUnreadCount();
@@ -48,24 +72,20 @@ export default function NotificationsScreen() {
   const unreadCount = unreadData?.count ?? 0;
 
   // Auto-mark all as read when the screen gains focus.
-  // New notifications arriving while on this screen are NOT auto-read.
   useFocusEffect(
     useCallback(() => {
       if (unreadCount > 0) {
         markAll.mutate();
       }
-      // Only fire on focus, not on every unreadCount change
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []),
   );
 
   function handlePress(notification: AppNotification) {
-    // Mark as read (fire-and-forget — don't block navigation)
     if (!notification.read) {
       markRead.mutate(notification.id);
     }
 
-    // Navigate to the relevant context
     const gameId = notification.data?.game_id;
 
     if (
@@ -92,52 +112,47 @@ export default function NotificationsScreen() {
   }
 
   if (isLoading) {
-    return (
-      <View style={styles.centered}>
-        <ActivityIndicator size="large" color="#e94560" />
-      </View>
-    );
+    return <NotificationsSkeleton topInset={insets.top} />;
   }
 
   return (
-    <View style={styles.flex}>
-      {/* Actions row */}
+    <View style={[styles.container, { paddingTop: insets.top + tokens.spacing.base }]}>
+      {/* Header */}
+      <View style={styles.headerRow}>
+        <Text variant="h1">Notifications</Text>
+      </View>
+
+      {/* Actions bar */}
       {(unreadCount > 0 || notifications.length > 0) && (
-        <View style={styles.markAllRow}>
-          <Text style={styles.unreadLabel}>
-            {unreadCount > 0 ? `${unreadCount} unread` : `${notifications.length} notifications`}
-          </Text>
-          <View style={styles.actionButtons}>
-            {unreadCount > 0 && (
-              <Pressable
-                onPress={() => markAll.mutate()}
-                disabled={markAll.isPending}
-                style={({ pressed }) => [
-                  styles.markAllBtn,
-                  pressed && styles.markAllBtnPressed,
-                ]}
-              >
-                <Text style={styles.markAllText}>
-                  {markAll.isPending ? "Marking…" : "Mark all as read"}
-                </Text>
-              </Pressable>
-            )}
-            <Pressable
-              onPress={() => deleteAll.mutate()}
-              disabled={deleteAll.isPending}
-              style={({ pressed }) => [
-                styles.deleteAllBtn,
-                pressed && styles.markAllBtnPressed,
-              ]}
-            >
-              <Text style={styles.deleteAllText}>
-                {deleteAll.isPending ? "Deleting…" : "Delete All"}
-              </Text>
-            </Pressable>
+        <>
+          <View style={styles.actionsBar}>
+            <Text variant="caption" color="secondary">
+              {unreadCount > 0 ? `${unreadCount} unread` : `${notifications.length} notifications`}
+            </Text>
+            <Row gap="sm">
+              {unreadCount > 0 && (
+                <Button
+                  label={markAll.isPending ? "Marking\u2026" : "Mark all read"}
+                  variant="ghost"
+                  size="md"
+                  disabled={markAll.isPending}
+                  onPress={() => markAll.mutate()}
+                />
+              )}
+              <Button
+                label={deleteAll.isPending ? "Deleting\u2026" : "Delete All"}
+                variant="ghost"
+                size="md"
+                disabled={deleteAll.isPending}
+                onPress={() => deleteAll.mutate()}
+              />
+            </Row>
           </View>
-        </View>
+          <Divider subtle />
+        </>
       )}
 
+      {/* List */}
       <FlatList
         data={notifications}
         keyExtractor={(item) => item.id}
@@ -148,13 +163,16 @@ export default function NotificationsScreen() {
           <RefreshControl
             refreshing={isRefetching}
             onRefresh={refetch}
-            tintColor="#e94560"
+            tintColor={tokens.color.accent.primary}
           />
         }
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.listContent}
         ListEmptyComponent={
-          <View style={styles.emptyState}>
-            <Text style={styles.emptyText}>No notifications yet.</Text>
-          </View>
+          <EmptyState
+            title="All caught up"
+            description="No notifications yet"
+          />
         }
       />
     </View>
@@ -162,60 +180,25 @@ export default function NotificationsScreen() {
 }
 
 const styles = StyleSheet.create({
-  flex: { flex: 1 },
-  centered: {
+  container: {
     flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
   },
-  markAllRow: {
+  headerRow: {
+    paddingHorizontal: tokens.spacing.lg,
+    paddingBottom: tokens.spacing.md,
+  },
+  actionsBar: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: "#1a1a3e",
-    backgroundColor: "#0f0e17",
+    paddingHorizontal: tokens.spacing.lg,
+    paddingBottom: tokens.spacing.sm,
   },
-  unreadLabel: {
-    color: "#888",
-    fontSize: 13,
+  listContent: {
+    flexGrow: 1,
+    paddingBottom: tokens.spacing["2xl"],
   },
-  actionButtons: {
-    flexDirection: "row",
-    gap: 8,
-  },
-  markAllBtn: {
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: 6,
-    backgroundColor: "#2a2a5a",
-  },
-  markAllBtnPressed: {
-    opacity: 0.6,
-  },
-  markAllText: {
-    color: "#ccc",
-    fontSize: 13,
-  },
-  deleteAllBtn: {
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: 6,
-    backgroundColor: "#5a1a1a",
-  },
-  deleteAllText: {
-    color: "#e94560",
-    fontSize: 13,
-  },
-  emptyState: {
-    flex: 1,
-    alignItems: "center",
-    paddingTop: 60,
-  },
-  emptyText: {
-    color: "#555",
-    fontSize: 15,
+  skeletonContainer: {
+    paddingHorizontal: tokens.spacing.lg,
   },
 });

@@ -34,7 +34,7 @@ class Game(Base):
         DateTime(timezone=True), nullable=True
     )
     chip_cash_rate: Mapped[Decimal] = mapped_column(Numeric(12, 4), nullable=False)
-    currency: Mapped[str] = mapped_column(String(10), nullable=False, default="USD")
+    currency: Mapped[str] = mapped_column(String(10), nullable=False, default="ILS")
     status: Mapped[GameStatus] = mapped_column(
         SAEnum(GameStatus, native_enum=False, length=10),
         nullable=False,

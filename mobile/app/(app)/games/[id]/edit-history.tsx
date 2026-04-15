@@ -8,16 +8,22 @@
  */
 
 import { Stack, useLocalSearchParams } from "expo-router";
+import { FlatList, RefreshControl, StyleSheet, View } from "react-native";
+
 import {
-  ActivityIndicator,
-  FlatList,
-  RefreshControl,
-  StyleSheet,
+  Screen,
   Text,
-  View,
-} from "react-native";
+  Card,
+  Badge,
+  Spacer,
+  Row,
+  Divider,
+  Skeleton,
+  EmptyState,
+} from "@/components";
 
 import { useGameEdits } from "@/features/game-edits/useGameEdits";
+import { tokens } from "@/theme";
 import type { GameEdit, GameEditType } from "@/types/game";
 
 // ---------------------------------------------------------------------------
@@ -29,6 +35,13 @@ const EDIT_TYPE_LABELS: Record<GameEditType, string> = {
   buyin_updated: "Buy-in updated",
   buyin_deleted: "Buy-in deleted",
   final_stack_updated: "Final stack updated",
+};
+
+const EDIT_TYPE_VARIANT: Record<GameEditType, "accent" | "warning" | "neutral"> = {
+  buyin_created: "accent",
+  buyin_updated: "neutral",
+  buyin_deleted: "warning",
+  final_stack_updated: "neutral",
 };
 
 function formatDate(isoString: string): string {
@@ -43,7 +56,7 @@ function formatDate(isoString: string): string {
 }
 
 function formatValue(key: string, value: unknown): string {
-  if (value == null) return "—";
+  if (value == null) return "\u2014";
   if (typeof value === "number") return value.toFixed(2);
   if (typeof value === "string") {
     const n = parseFloat(value);
@@ -54,38 +67,75 @@ function formatValue(key: string, value: unknown): string {
 }
 
 // ---------------------------------------------------------------------------
+// Loading skeleton
+// ---------------------------------------------------------------------------
+
+function EditHistorySkeleton() {
+  return (
+    <Screen scrollable>
+      <Spacer size="base" />
+      <Skeleton width={120} height={16} />
+      <Spacer size="lg" />
+      {[1, 2, 3, 4].map((i) => (
+        <View key={i} style={{ marginBottom: tokens.spacing.md }}>
+          <Skeleton width="100%" height={100} radius={tokens.radius.lg} />
+        </View>
+      ))}
+    </Screen>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Single edit entry
 // ---------------------------------------------------------------------------
 
 function EditEntry({ edit }: { edit: GameEdit }) {
   const label = EDIT_TYPE_LABELS[edit.edit_type] ?? edit.edit_type;
+  const badgeVariant = EDIT_TYPE_VARIANT[edit.edit_type] ?? "neutral";
 
   // Determine which fields changed by comparing before/after
   const changedFields: { field: string; before: string; after: string }[] = [];
 
   if (edit.edit_type === "buyin_created" && edit.after_data) {
     if (edit.after_data.cash_amount != null)
-      changedFields.push({ field: "Cash", before: "—", after: formatValue("cash", edit.after_data.cash_amount) });
+      changedFields.push({
+        field: "Cash",
+        before: "\u2014",
+        after: formatValue("cash", edit.after_data.cash_amount),
+      });
     if (edit.after_data.chips_amount != null)
-      changedFields.push({ field: "Chips", before: "—", after: formatValue("chips", edit.after_data.chips_amount) });
+      changedFields.push({
+        field: "Chips",
+        before: "\u2014",
+        after: formatValue("chips", edit.after_data.chips_amount),
+      });
   } else if (edit.edit_type === "buyin_deleted" && edit.before_data) {
     if (edit.before_data.cash_amount != null)
-      changedFields.push({ field: "Cash", before: formatValue("cash", edit.before_data.cash_amount), after: "—" });
+      changedFields.push({
+        field: "Cash",
+        before: formatValue("cash", edit.before_data.cash_amount),
+        after: "\u2014",
+      });
     if (edit.before_data.chips_amount != null)
-      changedFields.push({ field: "Chips", before: formatValue("chips", edit.before_data.chips_amount), after: "—" });
+      changedFields.push({
+        field: "Chips",
+        before: formatValue("chips", edit.before_data.chips_amount),
+        after: "\u2014",
+      });
   } else if (edit.before_data && edit.after_data) {
-    // For updates, show fields that differ
     const allKeys = new Set([
       ...Object.keys(edit.before_data),
       ...Object.keys(edit.after_data),
     ]);
     for (const key of allKeys) {
-      // Skip IDs and metadata — only show value fields
-      if (key.endsWith("_id") || key === "buy_in_type" || key.endsWith("_at")) continue;
+      if (key.endsWith("_id") || key === "buy_in_type" || key.endsWith("_at"))
+        continue;
       const before = edit.before_data[key];
       const after = edit.after_data[key];
       if (String(before) !== String(after)) {
-        const fieldLabel = key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+        const fieldLabel = key
+          .replace(/_/g, " ")
+          .replace(/\b\w/g, (c) => c.toUpperCase());
         changedFields.push({
           field: fieldLabel,
           before: formatValue(key, before),
@@ -96,27 +146,43 @@ function EditEntry({ edit }: { edit: GameEdit }) {
   }
 
   return (
-    <View style={styles.entry}>
-      <View style={styles.entryHeader}>
-        <Text style={styles.entryType}>{label}</Text>
-        <Text style={styles.entryTime}>{formatDate(edit.created_at)}</Text>
-      </View>
-      <Text style={styles.entryEditor}>
+    <Card style={entryStyles.card}>
+      <Row justify="between" align="center">
+        <Badge label={label} variant={badgeVariant} />
+        <Text variant="caption" color="muted">
+          {formatDate(edit.created_at)}
+        </Text>
+      </Row>
+
+      <Spacer size="sm" />
+      <Text variant="caption" color="secondary">
         by {edit.edited_by_display_name}
       </Text>
-      {changedFields.length > 0 ? (
-        <View style={styles.changeList}>
-          {changedFields.map((change, i) => (
-            <View key={i} style={styles.changeRow}>
-              <Text style={styles.changeField}>{change.field}:</Text>
-              <Text style={styles.changeBefore}>{change.before}</Text>
-              <Text style={styles.changeArrow}> → </Text>
-              <Text style={styles.changeAfter}>{change.after}</Text>
-            </View>
-          ))}
-        </View>
-      ) : null}
-    </View>
+
+      {changedFields.length > 0 && (
+        <>
+          <Spacer size="sm" />
+          <View style={entryStyles.changeBox}>
+            {changedFields.map((change, i) => (
+              <Row key={i} justify="start" gap="sm" align="center" wrap>
+                <Text variant="captionBold" color="secondary">
+                  {change.field}:
+                </Text>
+                <Text variant="caption" color="negative">
+                  {change.before}
+                </Text>
+                <Text variant="caption" color="muted">
+                  {"\u2192"}
+                </Text>
+                <Text variant="caption" color="positive">
+                  {change.after}
+                </Text>
+              </Row>
+            ))}
+          </View>
+        </>
+      )}
+    </Card>
   );
 }
 
@@ -127,15 +193,18 @@ function EditEntry({ edit }: { edit: GameEdit }) {
 export default function EditHistoryScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
 
-  const { data: edits = [], isLoading, refetch, isRefetching } = useGameEdits(id);
+  const {
+    data: edits = [],
+    isLoading,
+    refetch,
+    isRefetching,
+  } = useGameEdits(id);
 
   if (isLoading) {
     return (
       <>
         <Stack.Screen options={{ title: "Edit History" }} />
-        <View style={styles.centered}>
-          <ActivityIndicator size="large" color="#e94560" />
-        </View>
+        <EditHistorySkeleton />
       </>
     );
   }
@@ -146,26 +215,31 @@ export default function EditHistoryScreen() {
       <FlatList
         data={edits}
         keyExtractor={(item) => item.id}
-        contentContainerStyle={styles.container}
+        style={listStyles.list}
+        contentContainerStyle={listStyles.container}
         renderItem={({ item }) => <EditEntry edit={item} />}
         refreshControl={
           <RefreshControl
             refreshing={isRefetching}
             onRefresh={refetch}
-            tintColor="#e94560"
+            tintColor={tokens.color.accent.primary}
           />
         }
         ListHeaderComponent={
           edits.length > 0 ? (
-            <Text style={styles.headerText}>
-              {edits.length} edit{edits.length !== 1 ? "s" : ""} recorded
-            </Text>
+            <View style={listStyles.header}>
+              <Text variant="caption" color="secondary">
+                {edits.length} edit{edits.length !== 1 ? "s" : ""} recorded
+              </Text>
+              <Spacer size="md" />
+            </View>
           ) : null
         }
         ListEmptyComponent={
-          <View style={styles.emptyState}>
-            <Text style={styles.emptyText}>No edits have been made to this game.</Text>
-          </View>
+          <EmptyState
+            title="No edits yet"
+            description="No retroactive edits have been made to this game."
+          />
         }
       />
     </>
@@ -176,79 +250,28 @@ export default function EditHistoryScreen() {
 // Styles
 // ---------------------------------------------------------------------------
 
-const styles = StyleSheet.create({
-  centered: {
+const listStyles = StyleSheet.create({
+  list: {
     flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
+    backgroundColor: tokens.color.bg.primary,
   },
-  container: { padding: 16, paddingBottom: 48 },
-  headerText: {
-    color: "#888",
-    fontSize: 13,
-    marginBottom: 12,
+  container: {
+    padding: tokens.spacing.lg,
+    paddingBottom: tokens.spacing["4xl"],
   },
-  entry: {
-    backgroundColor: "#16213e",
-    borderRadius: 10,
-    padding: 14,
-    marginBottom: 10,
+  header: {
+    marginBottom: tokens.spacing.xs,
   },
-  entryHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 4,
+});
+
+const entryStyles = StyleSheet.create({
+  card: {
+    marginBottom: tokens.spacing.md,
   },
-  entryType: {
-    color: "#e94560",
-    fontSize: 14,
-    fontWeight: "700",
-  },
-  entryTime: {
-    color: "#666",
-    fontSize: 11,
-  },
-  entryEditor: {
-    color: "#aaa",
-    fontSize: 12,
-    marginBottom: 8,
-  },
-  changeList: {
-    backgroundColor: "#0f0e17",
-    borderRadius: 6,
-    padding: 10,
-    gap: 4,
-  },
-  changeRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    flexWrap: "wrap",
-  },
-  changeField: {
-    color: "#888",
-    fontSize: 12,
-    fontWeight: "600",
-    marginRight: 6,
-  },
-  changeBefore: {
-    color: "#e94560",
-    fontSize: 12,
-  },
-  changeArrow: {
-    color: "#666",
-    fontSize: 12,
-  },
-  changeAfter: {
-    color: "#2ecc71",
-    fontSize: 12,
-  },
-  emptyState: {
-    alignItems: "center",
-    paddingTop: 60,
-  },
-  emptyText: {
-    color: "#555",
-    fontSize: 15,
+  changeBox: {
+    backgroundColor: tokens.color.bg.primary,
+    borderRadius: tokens.radius.sm,
+    padding: tokens.spacing.md,
+    gap: tokens.spacing.xs,
   },
 });

@@ -9,42 +9,44 @@
 import { useQuery } from "@tanstack/react-query";
 import { Stack, useLocalSearchParams } from "expo-router";
 import {
-  ActivityIndicator,
-  Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
-  Text,
   View,
 } from "react-native";
 
+import {
+  Badge,
+  Card,
+  Divider,
+  EmptyState,
+  ErrorState,
+  MoneyAmount,
+  Row,
+  Section,
+  Skeleton,
+  Spacer,
+  Text,
+  TransferRow,
+  currencySymbol,
+} from "@/components";
 import { queryKeys } from "@/lib/queryKeys";
 import * as statsService from "@/services/statsService";
+import { tokens } from "@/theme";
 import type { ParticipantBalance, Transfer } from "@/types/game";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-function fmt(val: string | null | undefined): string {
-  if (val == null) return "—";
-  return parseFloat(val).toFixed(2);
-}
-
-function netColor(net: string | null): string {
-  if (net == null) return "#888";
-  const v = parseFloat(net);
-  if (v > 0) return "#2ecc71";
-  if (v < 0) return "#e94560";
-  return "#aaa";
+function parseVal(val: string | null | undefined): number {
+  if (val == null) return 0;
+  return parseFloat(val);
 }
 
 // ---------------------------------------------------------------------------
 // Sub-components
 // ---------------------------------------------------------------------------
-
-function SectionTitle({ title }: { title: string }) {
-  return <Text style={styles.sectionTitle}>{title}</Text>;
-}
 
 function BalanceCard({
   balance,
@@ -53,64 +55,78 @@ function BalanceCard({
   balance: ParticipantBalance;
   currency: string;
 }) {
+  const net = balance.net_balance != null ? parseFloat(balance.net_balance) : null;
+
   return (
-    <View style={styles.balanceCard}>
-      <View style={styles.balanceHeader}>
-        <Text style={styles.balanceName}>{balance.display_name}</Text>
-        <Text
-          style={[
-            styles.balanceNet,
-            { color: netColor(balance.net_balance) },
-          ]}
-        >
-          {balance.net_balance != null
-            ? `${parseFloat(balance.net_balance) >= 0 ? "+" : ""}${currency} ${fmt(balance.net_balance)}`
-            : "—"}
+    <Card variant="default" padding="comfortable" style={styles.balanceCard}>
+      <Row justify="between" align="center">
+        <Text variant="bodyBold" numberOfLines={1} style={styles.flex}>
+          {balance.display_name}
         </Text>
-      </View>
-      <View style={styles.balanceRow}>
-        <Text style={styles.balanceLabel}>Buy-ins</Text>
-        <Text style={styles.balanceValue}>
-          {currency} {fmt(balance.total_buy_ins)}
-        </Text>
-      </View>
-      <View style={styles.balanceRow}>
-        <Text style={styles.balanceLabel}>Chip value</Text>
-        <Text style={styles.balanceValue}>
-          {balance.final_chip_cash_value != null
-            ? `${currency} ${fmt(balance.final_chip_cash_value)}`
-            : "—"}
-        </Text>
-      </View>
-      <View style={styles.balanceRow}>
-        <Text style={styles.balanceLabel}>Expense balance</Text>
-        <Text style={styles.balanceValue}>
-          {currency} {fmt(balance.expense_balance)}
-        </Text>
-      </View>
-    </View>
+        {net != null ? (
+          <MoneyAmount amount={net} currency={currency} size="md" showSign />
+        ) : (
+          <Text variant="numeric" color="secondary">{"\u2014"}</Text>
+        )}
+      </Row>
+
+      <Spacer size="sm" />
+      <Divider subtle />
+      <Spacer size="sm" />
+
+      <Row justify="between" align="center">
+        <Text variant="caption" color="secondary">Buy-ins</Text>
+        <MoneyAmount
+          amount={parseVal(balance.total_buy_ins)}
+          currency={currency}
+          size="sm"
+        />
+      </Row>
+      <Spacer size="xs" />
+      <Row justify="between" align="center">
+        <Text variant="caption" color="secondary">Chip value</Text>
+        {balance.final_chip_cash_value != null ? (
+          <MoneyAmount
+            amount={parseVal(balance.final_chip_cash_value)}
+            currency={currency}
+            size="sm"
+          />
+        ) : (
+          <Text variant="numericSmall" color="secondary">{"\u2014"}</Text>
+        )}
+      </Row>
+      <Spacer size="xs" />
+      <Row justify="between" align="center">
+        <Text variant="caption" color="secondary">Expense balance</Text>
+        <MoneyAmount
+          amount={parseVal(balance.expense_balance)}
+          currency={currency}
+          size="sm"
+        />
+      </Row>
+    </Card>
   );
 }
 
-function TransferRow({
-  transfer,
-  currency,
-}: {
-  transfer: Transfer;
-  currency: string;
-}) {
+function DetailSkeleton() {
   return (
-    <View style={styles.transferRow}>
-      <Text style={styles.transferFrom} numberOfLines={1}>
-        {transfer.from_display_name}
-      </Text>
-      <Text style={styles.transferArrow}>→</Text>
-      <Text style={styles.transferTo} numberOfLines={1}>
-        {transfer.to_display_name}
-      </Text>
-      <Text style={styles.transferAmount}>
-        {currency} {fmt(transfer.amount)}
-      </Text>
+    <View style={styles.skeletonContainer}>
+      {/* Chip rate */}
+      <Skeleton width={180} height={14} />
+      <Spacer size="xl" />
+
+      {/* Transfers section */}
+      <Skeleton width={140} height={18} />
+      <Spacer size="md" />
+      <Skeleton height={120} radius={tokens.radius.xl} />
+      <Spacer size="xl" />
+
+      {/* Balances section */}
+      <Skeleton width={140} height={18} />
+      <Spacer size="md" />
+      <Skeleton height={140} radius={tokens.radius.lg} />
+      <Spacer size="md" />
+      <Skeleton height={140} radius={tokens.radius.lg} />
     </View>
   );
 }
@@ -127,6 +143,7 @@ export default function HistoryGameScreen() {
     isLoading,
     error,
     refetch,
+    isRefetching,
   } = useQuery({
     queryKey: queryKeys.historyGame(id),
     queryFn: () => statsService.getHistoryGame(id),
@@ -135,75 +152,109 @@ export default function HistoryGameScreen() {
 
   if (isLoading) {
     return (
-      <>
+      <View style={styles.container}>
         <Stack.Screen options={{ title: "Game Detail" }} />
-        <View style={styles.centered}>
-          <ActivityIndicator size="large" color="#e94560" />
-        </View>
-      </>
+        <DetailSkeleton />
+      </View>
     );
   }
 
   if (error || !settlement) {
     return (
-      <>
+      <View style={styles.container}>
         <Stack.Screen options={{ title: "Game Detail" }} />
-        <View style={styles.centered}>
-          <Text style={styles.errorText}>Failed to load game</Text>
-          <Pressable
-            style={[styles.btn, styles.btnPrimary, { marginTop: 12 }]}
-            onPress={() => void refetch()}
-          >
-            <Text style={styles.btnText}>Retry</Text>
-          </Pressable>
-        </View>
-      </>
+        <ErrorState
+          message="Failed to load game"
+          onRetry={() => void refetch()}
+        />
+      </View>
     );
   }
 
   const { currency, balances, transfers, is_complete } = settlement;
 
   return (
-    <>
+    <View style={styles.container}>
       <Stack.Screen options={{ title: "Game Detail" }} />
-      <ScrollView style={styles.flex} contentContainerStyle={styles.container}>
-        {/* Rate info */}
-        <Text style={styles.metaText}>
-          Chip rate: {parseFloat(settlement.chip_cash_rate).toFixed(4)} {currency} / chip
-        </Text>
+      <ScrollView
+        style={styles.flex}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefetching}
+            onRefresh={refetch}
+            tintColor={tokens.color.accent.primary}
+          />
+        }
+      >
+        {/* Game info header */}
+        <Row gap="md" align="center">
+          <Text variant="caption" color="secondary">
+            Chip rate: {parseFloat(settlement.chip_cash_rate).toFixed(4)} {currencySymbol(currency)} / chip
+          </Text>
+          <Badge
+            label={is_complete ? "Complete" : "Incomplete"}
+            variant={is_complete ? "accent" : "warning"}
+          />
+        </Row>
 
-        {!is_complete ? (
-          <View style={styles.warningBanner}>
-            <Text style={styles.warningText}>
-              Settlement incomplete — one or more final stacks are missing.
-            </Text>
-          </View>
-        ) : null}
+        <Spacer size="lg" />
 
-        {/* Balances */}
-        <SectionTitle title="Final Balances" />
-        {balances.map((b) => (
-          <BalanceCard key={b.participant_id} balance={b} currency={currency} />
-        ))}
-
-        {/* Transfers */}
-        {is_complete && transfers.length > 0 ? (
+        {/* Warning banner */}
+        {!is_complete && (
           <>
-            <SectionTitle title="Transfers" />
-            <View style={styles.transfersCard}>
+            <Card variant="default" padding="compact" style={styles.warningBanner}>
+              <Text variant="caption" color="warning">
+                Settlement incomplete — one or more final stacks are missing.
+              </Text>
+            </Card>
+            <Spacer size="lg" />
+          </>
+        )}
+
+        {/* Transfers (hero section) */}
+        {is_complete && transfers.length > 0 && (
+          <Section title="Who Pays Whom">
+            <Card variant="prominent" padding="compact">
               {transfers.map((t, i) => (
-                <TransferRow key={i} transfer={t} currency={currency} />
+                <View key={i}>
+                  {i > 0 && <Divider subtle />}
+                  <TransferRow
+                    fromName={t.from_display_name}
+                    toName={t.to_display_name}
+                    amount={parseFloat(t.amount)}
+                    currency={currency}
+                  />
+                </View>
               ))}
-            </View>
-          </>
-        ) : is_complete && transfers.length === 0 ? (
-          <>
-            <SectionTitle title="Transfers" />
-            <Text style={styles.emptyText}>All balances are settled — no transfers needed.</Text>
-          </>
-        ) : null}
+            </Card>
+          </Section>
+        )}
+
+        {is_complete && transfers.length === 0 && (
+          <Section title="Transfers">
+            <Card variant="default" padding="comfortable">
+              <Text variant="body" color="secondary" align="center">
+                All balances are settled — no transfers needed.
+              </Text>
+            </Card>
+          </Section>
+        )}
+
+        {/* Final Balances */}
+        <Section
+          title="Final Balances"
+          subtitle={`${balances.length} ${balances.length === 1 ? "player" : "players"}`}
+        >
+          {balances.map((b) => (
+            <BalanceCard key={b.participant_id} balance={b} currency={currency} />
+          ))}
+        </Section>
+
+        <Spacer size="4xl" />
       </ScrollView>
-    </>
+    </View>
   );
 }
 
@@ -212,70 +263,25 @@ export default function HistoryGameScreen() {
 // ---------------------------------------------------------------------------
 
 const styles = StyleSheet.create({
-  flex: { flex: 1 },
-  container: { padding: 16, paddingBottom: 48 },
-  centered: {
+  container: {
     flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    padding: 24,
+    backgroundColor: tokens.color.bg.primary,
   },
-  errorText: { color: "#ff6b6b", fontSize: 15 },
-  metaText: { color: "#888", fontSize: 12, marginBottom: 12 },
-  warningBanner: {
-    backgroundColor: "#4a3000",
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 16,
+  flex: {
+    flex: 1,
   },
-  warningText: { color: "#f0a500", fontSize: 13 },
-  sectionTitle: {
-    color: "#aaa",
-    fontSize: 13,
-    fontWeight: "700",
-    textTransform: "uppercase",
-    letterSpacing: 0.8,
-    marginTop: 20,
-    marginBottom: 10,
+  scrollContent: {
+    padding: tokens.spacing.lg,
+    paddingBottom: tokens.spacing["4xl"],
+  },
+  skeletonContainer: {
+    padding: tokens.spacing.lg,
   },
   balanceCard: {
-    backgroundColor: "#16213e",
-    borderRadius: 10,
-    padding: 14,
-    marginBottom: 10,
+    marginBottom: tokens.spacing.md,
   },
-  balanceHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 10,
+  warningBanner: {
+    borderLeftWidth: 3,
+    borderLeftColor: tokens.color.semantic.warning,
   },
-  balanceName: { color: "#fff", fontSize: 15, fontWeight: "600", flex: 1 },
-  balanceNet: { fontSize: 16, fontWeight: "700" },
-  balanceRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    paddingVertical: 4,
-  },
-  balanceLabel: { color: "#888", fontSize: 13 },
-  balanceValue: { color: "#ddd", fontSize: 13 },
-  transfersCard: {
-    backgroundColor: "#16213e",
-    borderRadius: 10,
-    padding: 14,
-  },
-  transferRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 8,
-    gap: 6,
-  },
-  transferFrom: { color: "#e94560", fontSize: 13, flex: 1 },
-  transferArrow: { color: "#888", fontSize: 13 },
-  transferTo: { color: "#2ecc71", fontSize: 13, flex: 1 },
-  transferAmount: { color: "#fff", fontSize: 13, fontWeight: "600" },
-  emptyText: { color: "#555", fontSize: 13 },
-  btn: { borderRadius: 8, paddingVertical: 13, alignItems: "center" },
-  btnPrimary: { backgroundColor: "#e94560", paddingHorizontal: 24 },
-  btnText: { color: "#fff", fontSize: 14, fontWeight: "600" },
 });
